@@ -2,7 +2,7 @@
 #
 # flac2mp3.pl
 #
-# Version 0.1.3
+# Version 0.1.4
 #
 # Converts a directory full of flac files into a corresponding directory of mp3 files
 #
@@ -14,10 +14,15 @@
 #
 # Revision History:
 #
+# v0.1.4
+#  - Fix for files with multiple periods in filename, e.g. "01 - Back In
+#    The U.S.S.R..flac" would be converted as "Back In The U.mp3"
+#  - Fix for timestamp comparison (got it the right way round this
+#    time!)
 # v0.1.3
 #  - added --quiet option to flac and lame commands
-#  - only run conversion if dest file doesn't exist or if src file is newer
-#    then dest file
+#  - only run conversion if dest file doesn't exist or if src file is
+#    newer than dest file
 #  - set modification time of dest file to same as src file
 #  - check exit value of conversion command
 #  - fixed problem with certain characters in file/directory name
@@ -136,7 +141,7 @@ sub find_files {
 
 	# process all files found in this directory
 	foreach my $srcfile (@target_files) {
-		my ($fbase, $fdir, $fext) = fileparse( $srcfile, '\..*$' );
+		my ($fbase, $fdir, $fext) = fileparse( $srcfile, '\.flac$' );
 		my $destfile = $destdir . "/" . $fbase . ".mp3";
 		convert_file($srcfile, $destfile);
 	}
@@ -184,7 +189,7 @@ sub convert_file {
 		}
 		
 		# only process file if srcfile timestamp is later than destfile
-		if ($srcmodtime >= $destmodtime) {
+		if ($srcmodtime <= $destmodtime) {
 			$process_file = 0;
 			$::d_info && msg("Skipping file $srcfile\n");
 		}
