@@ -2,7 +2,7 @@
 #
 # flac2mp3.pl
 #
-# Version 0.2.1
+# Version 0.2.2
 #
 # Converts a directory full of flac files into a corresponding directory of mp3 files
 #
@@ -14,6 +14,10 @@
 #
 # Revision History:
 #
+# v0.2.2
+#  - Bug-fix: timestamp comparison not quite right
+#  - Be more robust when converting files
+#    (thanks Darren Warner <darren@dazwin.com>)
 # v0.2.1
 #  - Bug-fix: omitted File::Path module include
 # v0.2.0
@@ -166,7 +170,9 @@ sub find_files {
 
 	# process all files found in this directory
 	foreach my $srcfilename (@target_files) {
-		convert_file($srcfilename, $destdir);
+		# convert_file($srcfilename, $destdir);
+		eval convert_file($srcfilename, $destdir);
+		warn($@) if $@;
 	}
 
 	# process any subdirs of present directory
@@ -256,7 +262,7 @@ sub convert_file {
 		
 		# Don't process the file srcfile timestamp is earlier than destfile
 		# or tags are different
-		if ($srcmodtime >= $destmodtime) {
+		if ($srcmodtime <= $destmodtime) {
 			$pf_timestamp = 0;
 		}
 		
