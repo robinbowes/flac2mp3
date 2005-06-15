@@ -1,0 +1,247 @@
+#!/usr/bin/perl -w
+#
+# flac2mp3.pl
+#
+# Version 0.1.3
+#
+# Converts a directory full of flac files into a corresponding directory of mp3 files
+#
+# Usage:
+#
+#   flac2mp3.pl [options] srcdir destdir
+#
+# Robin Bowes <robin@robinbowes.com>
+#
+# Revision History:
+#
+# v0.1.3
+#  - added --quiet option to flac and lame commands
+#  - only run conversion if dest file doesn't exist or if src file is newer
+#    then dest file
+#  - set modification time of dest file to same as src file
+#  - check exit value of conversion command
+#  - fixed problem with certain characters in file/directory name
+#  - added rudimentary SIGINT handling
+# v0.1.2
+#  - Fixed filename quoting
+# v0.1.1
+#  - Changes to filename quoting
+# v0.1.0
+#  - Initial version
+
+use strict;
+use Audio::FLAC::Header;
+use Getopt::Long;
+use File::Basename;
+use File::stat;
+
+our $flaccmd = "/usr/bin/flac";
+our $lamecmd = "/usr/bin/lame";
+our @flacargs = qw ( --decode --stdout --silent);
+
+# Build this array dynamically from command-line options
+# Add --quiet option by default?
+our @lameargs = qw ( --preset standard  --replaygain-accurate --quiet);
+
+# FLAC/MP3 tag mapping
+# Flac: 	ALBUM  ARTIST  TITLE  DATE  GENRE  TRACKNUMBER  COMMENT
+# ID3v2:	ALBUM  ARTIST  TITLE  YEAR  GENRE  TRACK        COMMENT
+
+# Tags used in conversion
+our %flactags = (	'ALBUM'			=> 'ALBUM',
+						'ARTIST'			=> 'ARTIST',
+						'TITLE'			=> 'TITLE',
+						'DATE'			=> 'DATE',
+						'GENRE'			=> 'GENRE',
+						'TRACKNUMBER'	=> 'TRACKNUMBER',
+						'COMMENT'		=> 'COMMENT', );
+
+our %lametags = (	'ALBUM'			=> '--tl',
+						'ARTIST'			=> '--ta',
+						'TITLE'			=> '--tt',
+						'DATE'			=> '--ty',
+						'GENRE'			=> '--tg',
+						'TRACKNUMBER'	=> '--tn',
+						'COMMENT'		=> '--tc', );
+						
+use vars qw ( 	$d_info
+					$d_debug
+);
+
+# Catch SIGINTs
+$SIG{INT} = \&INT_Handler;
+
+GetOptions (
+	"d_info!"=>\$d_info,
+	"d_debug!"=>\$d_debug
+);
+
+# Do I need to set the default value of any options? Or does GetOptions handle it?
+# If I do, what's the "best" way to do it?
+
+# This test prevents piping program output to a file
+# Needs changing to something else.
+# showusage() unless (scalar @ARGV == 2);
+
+my ($srcdirroot, $destdirroot) = @ARGV;
+
+mkdir($destdirroot, 0777) or die "Can't create directory $destdirroot\n"
+	unless -d $destdirroot;
+
+die "Source directory not found: $srcdirroot\n"
+	unless -d $srcdirroot;
+
+# count all flac files in srcdir
+# Display a progress report after each file, e.g. Processed 367/4394 files
+# Possibly do some timing and add a Estimated Time Remaining
+# Will need to only count files that are going to be processed. Hmmm could get complicated.
+
+find_files($srcdirroot, $destdirroot, $srcdirroot);
+
+1;
+## End of main program
+
+sub find_files {
+	my ($srcdirroot, $destdirroot, $srcdir) = @_;
+
+	$::d_info && msg("Processing directory: $srcdir\n");
+
+	# remove the src root directory from the beginning
+	# of the current directory to give the additional
+	# path information to be added to the destination root.
+	# Try to create the new destination directory.
+	(my $extra_path = $srcdir) =~ s/^\Q$srcdirroot\E//;
+	my $destdir = $destdirroot . $extra_path;
+	mkdir($destdir, 0777) or die "Can't create directory $destdir\n"
+		unless -d $destdir;
+
+	# get all directory entries
+	opendir(SRCDIR, $srcdir) or die "Couldn't open directory $srcdir\n";
+	my @direntries = readdir(SRCDIR) or
+		die "Couldn't read directory entries for directory $srcdir\n";
+	closedir(SRCDIR);
+
+	# get all target files within the present directory
+	my @target_files = 	map  { $_->[1] }				# extract pathnames
+								map  { [ $_, "$srcdir/$_" ] }	# form (name, path)
+								grep { /\.flac$/ }			# just flac files
+								@direntries;
+
+	# get all subdirs of the present directory
+	my @subdirs =	map  { $_->[1] }						# extract pathnames
+						grep { -d $_->[1] }              # only directories
+						map  { [ $_, "$srcdir/$_" ] }		# form (name, path)
+						grep { !/^\.\.?$/ }					# not . or ..
+						@direntries;
+
+	# process all files found in this directory
+	foreach my $srcfile (@target_files) {
+		my ($fbase, $fdir, $fext) = fileparse( $srcfile, '\..*$' );
+		my $destfile = $destdir . "/" . $fbase . ".mp3";
+		convert_file($srcfile, $destfile);
+	}
+
+	# process any subdirs of present directory
+	foreach my $srcsubdir (@subdirs) {
+		&find_files($srcdirroot, $destdirroot, $srcsubdir);
+	}
+}
+
+sub showusage {
+	print "Usage goes here\n";
+	exit 1;
+}
+
+sub msg {
+	my $msg = shift;
+	print "$msg";
+}
+
+sub convert_file {
+	my ($srcfile, $destfile) = @_;
+	
+		# To do:
+		#   Compare tags even if src and dest file have same timestamp
+		#   Use command-line switches to override default behaviour
+	
+	# get srcfile timestamp
+	my $srcstat = stat($srcfile);
+	
+	my $process_file = 1;
+	
+	# if destfile already exists
+	if (-e $destfile) {
+	
+		# get destfile timestamp
+		my $deststat = stat($destfile);
+	
+		my $srcmodtime = scalar $srcstat->mtime;
+		my $destmodtime = scalar $deststat->mtime;
+
+		if ($::d_debug) {
+			print ("srcfile mtime:  $srcmodtime\n");
+			print ("destfile mtime: $destmodtime\n");
+		}
+		
+		# only process file if srcfile timestamp is later than destfile
+		if ($srcmodtime >= $destmodtime) {
+			$process_file = 0;
+			$::d_info && msg("Skipping file $srcfile\n");
+		}
+	}
+	
+	if ($process_file) {
+		
+		$::d_info && msg("Converting $srcfile to $destfile\n");
+
+		# Get all flac tags
+		my $flac = Audio::FLAC::Header->new($srcfile);
+		my $tags = $flac->tags();
+
+		# Start building command used to convert file
+		my $convert_command = "$flaccmd @flacargs \"$srcfile\" | $lamecmd @lameargs ";
+	
+		# Look for all the tags in which we are interested
+		for my $tag (keys(%flactags)) {
+			# Check the tag exists
+			if ($tags->{$flactags{$tag}}) {
+					
+				# To do: Check the tag is valid
+				# Specifically, make sure the GENRE is one of the standard ID3 tags
+				# Add a switch to lame to add the tag
+				$convert_command .= " $lametags{$tag} \"$tags->{$flactags{$tag}}\"";
+			}
+		}
+
+		# add the last few bits of the conversion command
+		$convert_command .= " - \"$destfile\"";
+
+		$::d_debug && msg("$convert_command\n");
+
+		# Convert the file
+		my $exit_value = system ($convert_command);
+		
+		$::d_debug && msg("Exit value from convert command: $exit_value\n");
+		
+		if ($exit_value) {
+			print("$convert_command failed with exit code $exit_value\n");
+			# delete the destfile if it exists
+			unlink $destfile;
+			# should check exit status of this command
+			
+			if ($exit_value == 2) {
+				exit(2);
+			}
+		} else {
+
+			# should optionally reset the destfile timestamp to the same as the srcfile	
+			utime $srcstat->mtime, $srcstat->mtime, $destfile
+		}
+	}
+}
+
+sub INT_Handler {
+	my $signame = shift;
+	die "Exited with SIG$signame\n";
+}
+# vim:set tabstop=3:
