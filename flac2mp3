@@ -2,7 +2,7 @@
 #
 # flac2mp3.pl
 #
-# Version 0.1.5
+# Version 0.2.1
 #
 # Converts a directory full of flac files into a corresponding directory of mp3 files
 #
@@ -14,10 +14,14 @@
 #
 # Revision History:
 #
-# v0.1.5
-#  - only create directories if files are found in them
-#  - make output less cluttered (only display filenames, not whole path)
+# v0.2.1
+#  - Bug-fix: omitted File::Path module include
+# v0.2.0
+#  - Only create directories if files are found in them
+#  - Make output less cluttered (only display filenames, not whole path)
 #  - Changed command-line options.
+#  - Major overhaul of tag handling. Now using MP3::Tag module
+#    to write tags to mp3 files. Allows tags to be read separately
 # v0.1.4
 #  - Fix for files with multiple periods in filename, e.g. "01 - Back In
 #    The U.S.S.R..flac" would be converted as "Back In The U.mp3"
@@ -39,20 +43,12 @@
 #  - Initial version
 #
 # To-do:
-#  - check for srcdirroot and destdirroot are defined before using them
-#    (eg in -d $srcdirroot)
-#  - Test that the following construct works:
-#    	my ($fbase, $fdir, $fext) = fileparse( $srcfile, '\.*?$' );
-#    Make sure this works the same as:
-#		my ($fbase, $fdir, $fext) = fileparse( $srcfile, '\.flac$' );
+#  - Extend to apply all legal tags in FLAC field (esp. Composer, Conductor, etc.)
+#  - Still falls over with certain characters in filename, e.g.
+#    Rock `N' Roll Suicide.flac
 #  - Clean up filepaths (check for double // in dirnames)
 #  - Clean up and rationalise program output, e.g. produce a sensible
 #    level of output by default unless a --quiet switch is used
-#  - Use File::Spec to build relative paths (ans2rel & rel2abs)
-#  - Don't tag with lame, Use a perl module to do the tagging so I can
-#    add a "tags only" option
-#  - Add a "tags only" option. Useful when audio content has not changed,
-#    just the tags.
 #  - Investigate using Audio::FLAC::Decode and Audio::MPEG instead of
 #    flac and lame programs used from system call
 #  - Write OO Audio file objects that know how to decode/encode/get
@@ -64,7 +60,6 @@
 #    options, pod, GPL statement, how to set program version, etc. etc.
 
 use strict;
-use AppConfig qw/:argcount/;
 use Audio::FLAC::Header;
 use Data::Dumper;
 use File::Basename;
@@ -73,7 +68,6 @@ use File::Spec;
 use File::stat;
 use Getopt::Long;
 use MP3::Tag;
-#use File::Which;
 
 our $flaccmd = "/usr/bin/flac";
 our $lamecmd = "/usr/bin/lame";
@@ -90,26 +84,13 @@ our @lameargs = qw ( --preset standard  --replaygain-accurate --quiet);
 # hash mapping FLAC tag names to MP3 names
 our %MP3Tags = (	'ALBUM'			=> 'TALB',
 						'ARTIST'			=> 'TPE1',
-#						'COMMENT'		=> 'COMM', ),
+						'COMMENT'		=> 'COMM',
 						'DATE'			=> 'TYER',
 						'GENRE'			=> 'TCON',
 						'TITLE'			=> 'TIT2',
 						'TRACKNUMBER'	=> 'TRCK',
-						);
+					);
 												
-my %supported_frames = (
-			TIT1 => 1,
-			TIT2 => 1,
-			TRCK => 1,
-			TALB => 1,
-			TPE1 => 1,
-			COMM => 1,
-			WXXX => 1,
-			TYER => 1,
-		       );
-
-my @supported_frames = keys %supported_frames;
-						
 use vars qw ( 	$flag_info
 					$flag_debug
 					$flag_tagsonly
@@ -130,11 +111,9 @@ $flag_info = !$flag_info;
 # Do I need to set the default value of any options? Or does GetOptions handle it?
 # If I do, what's the "best" way to do it?
 
-# This test prevents piping program output to a file
-# Needs changing to something else.
-# showusage() unless (scalar @ARGV == 2);
-
 my ($srcdirroot, $destdirroot) = @ARGV;
+
+showusage() if (!defined $srcdirroot || !defined $destdirroot);
 
 die "Source directory not found: $srcdirroot\n"
 	unless -d $srcdirroot;
@@ -230,14 +209,10 @@ sub convert_file {
 	# create object to access flac tags
 	my $srcfile = Audio::FLAC::Header->new($srcfilename);
 	
-	# object to access mp3 file. Created here so visible to whole routine
-	#my $destfile;
-	
 	# Get tags from flac file
 	my $srctags = $srcfile->tags();
 
-	print "src tags:\n";
-	print Dumper %$srctags;
+	$::flag_debug && print "Tags from source file:\n" . Dumper $srctags;
 
 	# hash to hold tags that will be updated
 	my %changedTags;
@@ -249,19 +224,17 @@ sub convert_file {
 		}
 	}
 	
-	print "valid tags\n";
-	print Dumper %changedTags;
-	
-	#if ($::flag_debug) {
-	#	foreach my $tag (keys %changedTags) {
-	#		msg("$tag: $changedTags{$tag}\n");
-	#	}
-	#}
+	if ($::flag_debug) {
+		print "Valid Tags from source file:\n";
+		print Dumper \%changedTags;
+	}
 	
 	# File Processing flags
 	my $pf_exists = 0;
 	my $pf_tags = 0;
 	my $pf_timestamp = 1;
+
+	$::flag_debug && msg("destfilename: $destfilename\n");
 
 	# if destfile already exists
 	if (-e $destfilename) {
@@ -329,6 +302,8 @@ sub convert_file {
 
 					# get tag from srcfile
 					my $srctag = $changedTags{$tag};
+					
+					$srctag = '' if (!defined $srctag);
 
 					$::flag_debug && msg("srctag value: $srctag\n");
 				
@@ -350,8 +325,12 @@ sub convert_file {
 		msg("pf_timestamp: $pf_timestamp\n");
 	}		
 
-	print "tags to be written:\n";
-	print Dumper %changedTags;
+	if ($::flag_debug) {
+		print "Tags to be written to dest file:\n";
+		print Dumper \%changedTags;
+	}
+
+
 	
 	if (!$pf_exists || $pf_timestamp || $pf_tags) {
 		
@@ -359,11 +338,16 @@ sub convert_file {
 
 		if (!$::flag_tagsonly && (!$pf_exists || ($pf_exists && !$pf_tags))) {
 			# Building command used to convert file (tagging done afterwards)
-			my $convert_command = "$flaccmd @flacargs \"$srcfilename\"" .
-				"| $lamecmd @lameargs - \"$destfilename\"";
+			
+			# Needs some work on quoting filenames containing special characters
+			my $quotedsrc = $srcfilename;
+			my $quoteddest = $destfilename;
+			my $convert_command = "$flaccmd @flacargs \"$quotedsrc\"" .
+				"| $lamecmd @lameargs - \"$quoteddest\"";
 	
 			$::flag_debug && msg("$convert_command\n");
 
+			
 			# Convert the file
 			my $exit_value = system ($convert_command);
 		
@@ -403,17 +387,11 @@ sub convert_file {
 
 				$::flag_debug && msg("Setting $tag = $tagstring\n");
 				
-				#if ($tag eq 'GENRE') {
-				#	$tagstring = $desttag->genres($tagstring);
-				#}
-				
 				$desttag->{$method} = $tagstring;
 			}
 
 			set_tag($destfilename, $desttag);
 				
-#			$destfile->{ID3V2}->write_tag();
-			
 			# should optionally reset the destfile timestamp to the same as the srcfile	
 			utime $srcstat->mtime, $srcstat->mtime, $destfilename;
 		}
@@ -425,11 +403,19 @@ sub INT_Handler {
 	die "Exited with SIG$signame\n";
 }
 
+# set_tag and get_tag routines taken from articles written by Teodor Zlatanov (tzz@bu.edu)
+# Part 1:	http://www-106.ibm.com/developerworks/linux/library/l-cpmp31.html
+# Part 2:	http://www-106.ibm.com/developerworks/linux/library/l-cpmp32.html
+
 sub set_tag {
+
 	my $file = shift @_;
 	my $tag  = shift @_;
 	my $mp3 = MP3::Tag->new($file);
-	print Dumper $tag;
+	if ($::flag_debug) {
+		print "Tags read from dest file:\n";
+		print Dumper $tag;
+	}
 	my $tags = $mp3->get_tags();
 	my $id3v2;
  
@@ -459,6 +445,18 @@ sub set_tag {
 }
 
 sub get_tag {
+
+	my %supported_frames = (
+			TIT1 => 1,
+			TIT2 => 1,
+			TRCK => 1,
+			TALB => 1,
+			TPE1 => 1,
+			COMM => 1,
+			WXXX => 1,
+			TYER => 1,
+	);
+
 	my $file    = shift @_;
 	my $upgrade = shift @_;
 	my $mp3 = MP3::Tag->new($file);
@@ -492,7 +490,7 @@ sub get_tag {
  		$tag->{TALB} = $id3v1->album();
 		$tag->{TYER} = $id3v1->year();
 		$tag->{TRCK} = $id3v1->track();
-		$tag->{TIT1} = $id3v1->genre();
+		$tag->{TCON} = $id3v1->genre();
 
 #  if ($upgrade) && ($config->ACCEPT_ALL() || read_yes_no("Upgrade ID3v1 tag to ID3v2 for $file?", 1)))
 		if ($upgrade) {
@@ -507,6 +505,7 @@ sub get_tag {
 			TALB => '',
 			TYER => 9999,
 			COMM => '',
+			TCON => '',
 		};
 	}
 
