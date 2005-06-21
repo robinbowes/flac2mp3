@@ -281,9 +281,9 @@ sub convert_file {
 
     # File Processing flags
     my %pflags = (
-       exists => 0,
-       tags   => 0,
-       timestamp => 1
+        exists    => 0,
+        tags      => 0,
+        timestamp => 1
     );
 
     $::Options{debug} && msg("destfilename: $destfilename\n");
@@ -350,12 +350,13 @@ sub convert_file {
 
                     # Check for tag in destfile
                     my ( $destframe, @info ) = $ID3v2->get_frame($method);
-                    if (!defined $destframe) {
-                    		$destframe = '';
-                    	}
+                    if ( !defined $destframe ) {
+                        $destframe = '';
+                    }
 
-                    $::Options{debug} 
-                      && print Dumper $destframe, @info; #msg("destframe: $destframe\ninfo: @info\n");
+                    $::Options{debug}
+                      && print Dumper $destframe,
+                      @info;    #msg("destframe: $destframe\ninfo: @info\n");
 
                     if ( $::Options{debug} ) {
                         my $framedata = $ID3v2->what_data( "", $method );
@@ -374,11 +375,11 @@ sub convert_file {
 
           # Bug: AudioFile::Info returns track as numeric. FLAC returns a string
           # 3 <> 03 so the track tag will always appear modified
-                        if ( $frame eq "TRACKNUMBER" ) {
-                            if ( $destframe < 10 ) {
-                                $destframe = sprintf( "%02u", $destframe );
-                            }
+                    if ( $frame eq "TRACKNUMBER" ) {
+                        if ( $destframe < 10 ) {
+                            $destframe = sprintf( "%02u", $destframe );
                         }
+                    }
 
                     # get tag from srcfile
                     my $srcframe = utf8toLatin1( $changedframes{$frame} );
@@ -402,20 +403,24 @@ sub convert_file {
         msg("pf_tags:      $pflags{tags}\n");
         msg("pf_timestamp: $pflags{timestamp}\n");
     }
-    
+
     if ( $::Options{debug} ) {
-	 	print "Tags to be written if tags need updating\n";
-	   print Dumper \%changedframes;
-	 }
+        print "Tags to be written if tags need updating\n";
+        print Dumper \%changedframes;
+    }
 
-
-    if ( !$pflags{exists} || $pflags{timestamp} || $pflags{tags} || $::Options{force} ) {
+    if (   !$pflags{exists}
+        || $pflags{timestamp}
+        || $pflags{tags}
+        || $::Options{force} )
+    {
         $::Options{info} && msg("Processing \"$fbase$fext\"\n");
 
         if (
             $::Options{force}
             || ( !$::Options{tagsonly}
-                && ( !$pflags{exists} || ( $pflags{exists} && !$pflags{tags} ) ) )
+                && ( !$pflags{exists} || ( $pflags{exists} && !$pflags{tags} ) )
+            )
           )
         {
 
@@ -452,7 +457,8 @@ sub convert_file {
         }
 
         # Write the tags to the converted file
-        if ( $pflags{exists} && ( $pflags{tags} || $pflags{timestamp} ) || $::Options{force} )
+        if (   $pflags{exists} && ( $pflags{tags} || $pflags{timestamp} )
+            || $::Options{force} )
         {
 
             my $mp3 = MP3::Tag->new($destfilename);
@@ -505,11 +511,13 @@ sub INT_Handler {
 
 sub utf8toLatin1 {
     my $data = shift;
+
     # Don't run the substitution on an empty string
-	 if ($data) {
-    	$data =~ s/([\xC0-\xDF])([\x80-\xBF])/chr(ord($1)<<6&0xC0|ord($2)&0x3F)/eg;
-	    $data =~ s/[\xE2][\x80][\x99]/'/g;
-	  }
+    if ($data) {
+        $data =~
+          s/([\xC0-\xDF])([\x80-\xBF])/chr(ord($1)<<6&0xC0|ord($2)&0x3F)/eg;
+        $data =~ s/[\xE2][\x80][\x99]/'/g;
+    }
 
     return $data;
 }
