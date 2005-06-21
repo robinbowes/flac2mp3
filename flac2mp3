@@ -2,9 +2,10 @@
 #
 # flac2mp3.pl
 #
-# Version 0.2.2
+# Version 0.2.3
 #
-# Converts a directory full of flac files into a corresponding directory of mp3 files
+# Converts a directory full of flac files into a corresponding
+# directory of mp3 files
 #
 # Usage:
 #
@@ -14,6 +15,11 @@
 #
 # Revision History:
 #
+# v0.2.3
+#  - Added --force option to force conversion
+#  - files/directories now processed alphabetically
+#  - Now handles Comments correctly (Comments are complex frames)
+#  - Tidied up code with perltidy (http://perltidy.sf.net)
 # v0.2.2
 #  - Bug-fix: timestamp comparison not quite right
 #  - Be more robust when converting files
@@ -75,38 +81,52 @@ use MP3::Tag;
 
 our $flaccmd = "/usr/bin/flac";
 our $lamecmd = "/usr/bin/lame";
-our @flacargs = qw ( --decode --stdout --silent);
+
+our @flacargs = qw (
+  --decode
+  --stdout
+  --silent
+);
 
 # Build this array dynamically from command-line options
 # Add --quiet option by default?
-our @lameargs = qw ( --preset standard  --replaygain-accurate --quiet);
-
-# FLAC/MP3 tag mapping
-# Flac: 	ALBUM  ARTIST  TITLE  DATE  GENRE  TRACKNUMBER  COMMENT
-# ID3v2:	ALBUM  ARTIST  TITLE  YEAR  GENRE  TRACK        COMMENT
-
-# hash mapping FLAC tag names to MP3 names
-our %MP3Tags = (	'ALBUM'			=> 'TALB',
-						'ARTIST'			=> 'TPE1',
-						'COMMENT'		=> 'COMM',
-						'DATE'			=> 'TYER',
-						'GENRE'			=> 'TCON',
-						'TITLE'			=> 'TIT2',
-						'TRACKNUMBER'	=> 'TRCK',
-					);
-												
-use vars qw ( 	$flag_info
-					$flag_debug
-					$flag_tagsonly
+our @lameargs = qw (
+  --preset standard
+  --replaygain-accurate
+  --quiet
 );
 
-# Catch SIGINTs
+# FLAC/MP3 tag/frame mapping
+# Flac: 	ALBUM  ARTIST  TITLE  DATE  GENRE  TRACKNUMBER  COMMENT
+# ID3v2:	ALBUM  ARTIST  TITLE  YEAR  GENRE  TRACK        COMMENT
+# Frame: TALB   TPE1    TIT2   TYER  TCON   TRCK         COMM
+
+# hash mapping FLAC tag names to MP3 frames
+our %MP3frames = (
+    'ALBUM'       => 'TALB',
+    'ARTIST'      => 'TPE1',
+    'COMMENT'     => 'COMM',
+    'DATE'        => 'TYER',
+    'GENRE'       => 'TCON',
+    'TITLE'       => 'TIT2',
+    'TRACKNUMBER' => 'TRCK',
+);
+
+use vars qw (
+  $flag_info
+  $flag_debug
+  $flag_tagsonly
+  $flag_force
+);
+
+# Catch interupts (SIGINT)
 $SIG{INT} = \&INT_Handler;
 
-GetOptions (
-	"quiet!"		=>	\$flag_info,
-	"debug!"		=>	\$flag_debug,
-	"tagsonly!"	=>	\$flag_tagsonly
+GetOptions(
+    "quiet!"    => \$flag_info,
+    "debug!"    => \$flag_debug,
+    "tagsonly!" => \$flag_tagsonly,
+    "force!"    => \$flag_force
 );
 
 # info flag is the inverse of --quiet
@@ -115,234 +135,274 @@ $flag_info = !$flag_info;
 # Do I need to set the default value of any options? Or does GetOptions handle it?
 # If I do, what's the "best" way to do it?
 
-my ($srcdirroot, $destdirroot) = @ARGV;
+my ( $srcdirroot, $destdirroot ) = @ARGV;
 
-showusage() if (!defined $srcdirroot || !defined $destdirroot);
+showusage() if ( !defined $srcdirroot || !defined $destdirroot );
 
 die "Source directory not found: $srcdirroot\n"
-	unless -d $srcdirroot;
+  unless -d $srcdirroot;
 
 # count all flac files in srcdir
 # Display a progress report after each file, e.g. Processed 367/4394 files
 # Possibly do some timing and add a Estimated Time Remaining
 # Will need to only count files that are going to be processed. Hmmm could get complicated.
 
-find_files($srcdirroot, $destdirroot, $srcdirroot);
+find_files( $srcdirroot, $destdirroot, $srcdirroot );
 
 1;
 ## End of main program
 
 sub find_files {
-	my ($srcdirroot, $destdirroot, $srcdir) = @_;
+    my ( $srcdirroot, $destdirroot, $srcdir ) = @_;
 
-	$::flag_info && msg("Processing directory: $srcdir\n");
+    $::flag_info && msg("Processing directory: $srcdir\n");
 
-	# remove the src root directory from the beginning
-	# of the current directory to give the additional
-	# path information to be added to the destination root.
-	# Try to create the new destination directory.
-	(my $extra_path = $srcdir) =~ s/^\Q$srcdirroot\E//;
-	my $destdir = $destdirroot . $extra_path;
+    # remove the src root directory from the beginning
+    # of the current directory to give the additional
+    # path information to be added to the destination root.
+    # Try to create the new destination directory.
+    ( my $extra_path = $srcdir ) =~ s/^\Q$srcdirroot\E//;
+    my $destdir = $destdirroot . $extra_path;
 
-	# get all directory entries
-	opendir(SRCDIR, $srcdir) or die "Couldn't open directory $srcdir\n";
-	my @direntries = readdir(SRCDIR) or
-		die "Couldn't read directory entries for directory $srcdir\n";
-	closedir(SRCDIR);
+    # get all directory entries
+    opendir( SRCDIR, $srcdir ) or die "Couldn't open directory $srcdir\n";
+    my @direntries = readdir(SRCDIR)
+      or die "Couldn't read directory entries for directory $srcdir\n";
+    closedir(SRCDIR);
 
-	# get all target files within the present directory
-	my @target_files = 	map  { $_->[1] }				# extract pathnames
-								map  { [ $_, "$srcdir/$_" ] }	# form (name, path)
-								grep { /\.flac$/ }			# just flac files
-								@direntries;
+    # get all target files within the present directory
+    my @target_files = map { $_->[1] }    # extract pathnames
+      map { [ $_, "$srcdir/$_" ] }        # form (name, path)
+      sort                                # sort the entries (does this work?)
+      grep { /\.flac$/ }                  # just flac files
+      @direntries;
 
-	# get all subdirs of the present directory
-	my @subdirs =	map  { $_->[1] }						# extract pathnames
-						grep { -d $_->[1] }              # only directories
-						map  { [ $_, "$srcdir/$_" ] }		# form (name, path)
-						grep { !/^\.\.?$/ }					# not . or ..
-						@direntries;
+    # get all subdirs of the present directory
+    my @subdirs = map { $_->[1] }         # extract pathnames
+      grep { -d $_->[1] }                 # only directories
+      map { [ $_, "$srcdir/$_" ] }        # form (name, path)
+      sort                                # sort the entries (does this work?)
+      grep { !/^\.\.?$/ }                 # not . or ..
+      @direntries;
 
-	# Create the destination directory if it doesn't already exist
-	mkpath($destdir) or die "Can't create directory $destdir\n"
-		unless -d $destdir;
+    # Create the destination directory if it doesn't already exist
+    mkpath($destdir)
+      or die "Can't create directory $destdir\n"
+      unless -d $destdir;
 
+    # process all files found in this directory
+    foreach my $srcfilename (@target_files) {
+        if ($::flag_debug) {
+            msg("target_files: ");
+            print Dumper @target_files;
+            $::flag_debug && msg("srcfilename: $srcfilename\n");
+            $::flag_debug && msg("destdir: $destdir\n");
+        }
+        convert_file( $srcfilename, $destdir );
 
-	# process all files found in this directory
-	foreach my $srcfilename (@target_files) {
-		# convert_file($srcfilename, $destdir);
-		eval convert_file($srcfilename, $destdir);
-		warn($@) if $@;
-	}
+        # The following construct generates silly warnings so I've removed it
+        # Suggested by Darren Warner <darren@dazwin.com>
+        # eval convert_file($srcfilename, $destdir);
+        # warn($@) if $@;
+    }
 
-	# process any subdirs of present directory
-	foreach my $srcsubdir (@subdirs) {
-		&find_files($srcdirroot, $destdirroot, $srcsubdir);
-	}
+    # process any subdirs of present directory
+    foreach my $srcsubdir (@subdirs) {
+        &find_files( $srcdirroot, $destdirroot, $srcsubdir );
+    }
 }
 
 sub showusage {
-	print "Usage goes here\n";
-	exit 1;
+        print <<"EOT";
+Usage: $0 [--quiet] [--debug] [--tagsonly] [--force] <flacdir> <mp3dir>
+    --quiet         Disable informational output to stdout
+    --debug         Enable debugging output. For developers only!
+    --tagsonly      Don't do any transcoding - just update tags
+    --force         Force transcoding and tag update even if not required
+EOT
+    exit 0;
 }
 
 sub msg {
-	my $msg = shift;
-	print "$msg";
+    my $msg = shift;
+    print "$msg";
 }
 
 sub convert_file {
-	my ($srcfilename, $destdir) = @_;
-	
-		# To do:
-		#   Compare tags even if src and dest file have same timestamp
-		#   Use command-line switches to override default behaviour
-	
-	# get srcfile timestamp
-	my $srcstat = stat($srcfilename);
-	my $deststat;
-	
-	my $srcRelPath = File::Spec->abs2rel($srcfilename, $srcdirroot);
-	
-	my $destPath = File::Spec->rel2abs($srcRelPath, $destdirroot);
+    my ( $srcfilename, $destdir ) = @_;
 
-	my ($fbase, $fdir, $fext) = fileparse( $destPath, '\.flac$' );
-	my $destfilename = $fdir . $fbase . ".mp3";
-	
-	$::flag_debug && msg("srcfile: $srcfilename\n");	
-	$::flag_debug && msg("destfile: $destfilename\n");
+    # To do:
+    #   Compare tags even if src and dest file have same timestamp
+    #   Use command-line switches to override default behaviour
 
-	# create object to access flac tags
-	my $srcfile = Audio::FLAC::Header->new($srcfilename);
-	
-	# Get tags from flac file
-	my $srctags = $srcfile->tags();
+    # get srcfile timestamp
+    my $srcstat = stat($srcfilename);
+    my $deststat;
 
-	$::flag_debug && print "Tags from source file:\n" . Dumper $srctags;
+    my $srcRelPath = File::Spec->abs2rel( $srcfilename, $srcdirroot );
 
-	# hash to hold tags that will be updated
-	my %changedTags;
-	
-	# weed out tags not valid in destfile
-	foreach my $tag (keys %$srctags) {
-		if ($MP3Tags{$tag}) {
-			$changedTags{$tag} = $srctags->{$tag};
-		}
-	}
-	
-	if ($::flag_debug) {
-		print "Valid Tags from source file:\n";
-		print Dumper \%changedTags;
-	}
-	
-	# File Processing flags
-	my $pf_exists = 0;
-	my $pf_tags = 0;
-	my $pf_timestamp = 1;
+    my $destPath = File::Spec->rel2abs( $srcRelPath, $destdirroot );
 
-	$::flag_debug && msg("destfilename: $destfilename\n");
+    my ( $fbase, $fdir, $fext ) = fileparse( $destPath, '\.flac$' );
+    my $destfilename = $fdir . $fbase . ".mp3";
 
-	# if destfile already exists
-	if (-e $destfilename) {
-	
-		$pf_exists = 1;
+    $::flag_debug && msg("srcfile: $srcfilename\n");
+    $::flag_debug && msg("destfile: $destfilename\n");
 
-		$::flag_debug && msg("destfile exists: $destfilename\n");
-		
-		# get destfile timestamp
-		$deststat = stat($destfilename);
-	
-		my $srcmodtime = scalar $srcstat->mtime;
-		my $destmodtime = scalar $deststat->mtime;
+    # create object to access flac tags
+    my $srcfile = Audio::FLAC::Header->new($srcfilename);
 
-		if ($::flag_debug) {
-			print ("srcfile mtime:  $srcmodtime\n");
-			print ("destfile mtime: $destmodtime\n");
-		}
-		
-		# Don't process the file srcfile timestamp is earlier than destfile
-		# or tags are different
-		if ($srcmodtime <= $destmodtime) {
-			$pf_timestamp = 0;
-		}
-		
-		$::flag_debug && msg("pf_timestamp: $pf_timestamp\n");
+    # Get tags from flac file
+    my $srcframes = $srcfile->tags();
 
-		# If the file dates are the same
-		if (!$pf_timestamp) {
-			# Compare tags; build hash of changed tags;
-			# if hash empty, process the file
+    $::flag_debug && print "Tags from source file:\n" . Dumper $srcframes;
 
-			my $destfiletag = get_tag($destfilename, 1);
-			
-			if (defined $destfiletag) {
-				# loop over all valid destfile tags
-				foreach my $tag (keys %MP3Tags) {
+    # hash to hold tags that will be updated
+    my %changedframes;
 
-					$::flag_debug && msg("tag is $tag\n");
-			
-					# To do: Check the tag is valid
-					# Specifically, make sure the GENRE is one of the standard ID3 tags
-					my $method = $MP3Tags{$tag};
+    # weed out tags not valid in destfile
+    foreach my $frame ( keys %$srcframes ) {
+        if ( $MP3frames{$frame} ) {
+            $changedframes{$frame} = $srcframes->{$frame};
+        }
+    }
 
-					$::flag_debug && msg("method is $method\n");
-				
-					# Check for tag in destfile
-					my $desttag = $destfiletag->{$method};
-				
-					# Check for undefined tag
-					if (!defined $desttag) {
-						$desttag = '';
-					} else {
-				
-						# Bug: AudioFile::Info returns track as numeric. FLAC returns a string
-						# 3 <> 03 so the track tag will always appear modified
-						if ($tag eq "TRACKNUMBER") {
-							if ($desttag < 10) {
-								$desttag = sprintf("%02u", $desttag);
-							}
-						}
-					}
-				
-					$::flag_debug && msg("desttag value: $desttag\n");
+    if ($::flag_debug) {
+        print "Valid Tags from source file:\n";
+        print Dumper \%changedframes;
+    }
 
-					# get tag from srcfile
-					my $srctag = $changedTags{$tag};
-					
-					$srctag = '' if (!defined $srctag);
+    # File Processing flags
+    my $pf_exists    = 0;
+    my $pf_tags      = 0;
+    my $pf_timestamp = 1;
 
-					$::flag_debug && msg("srctag value: $srctag\n");
-				
-					# If tags are the same...
-					if ($desttag eq $srctag) {
-						# remove from tags to be written hash
-						delete($changedTags{$tag});
-					} else {
-						$pf_tags = 1;
-					}
-				}
-			}
-		}
-	}
+    $::flag_debug && msg("destfilename: $destfilename\n");
 
-	if ($::flag_debug) {
-		msg("pf_exists:    $pf_exists\n");
-		msg("pf_tags:      $pf_tags\n");
-		msg("pf_timestamp: $pf_timestamp\n");
+    # if destfile already exists
+    if ( -e $destfilename ) {
+
+        $pf_exists = 1;
+
+        $::flag_debug && msg("destfile exists: $destfilename\n");
+
+        # get destfile timestamp
+        $deststat = stat($destfilename);
+
+        my $srcmodtime  = scalar $srcstat->mtime;
+        my $destmodtime = scalar $deststat->mtime;
+
+        if ($::flag_debug) {
+            print("srcfile mtime:  $srcmodtime\n");
+            print("destfile mtime: $destmodtime\n");
+        }
+
+        # Don't process the file if srcfile timestamp is earlier than destfile
+        # or tags are different
+        if ( $srcmodtime <= $destmodtime ) {
+            $pf_timestamp = 0;
+        }
+
+        $::flag_debug && msg("pf_timestamp: $pf_timestamp\n");
+
+        # If the file dates are the same
+        if ( !$pf_timestamp ) {
+
+            # Compare tags; build hash of changed tags;
+            # if hash empty, process the file
+
+            my $mp3 = MP3::Tag->new($destfilename);
+
+            # If an ID3v2 tag is found
+            if ( exists $mp3->{ID3v2} ) {
+
+                # loop over all valid destfile frames
+                foreach my $frame ( keys %MP3frames ) {
+
+                    $::flag_debug && msg("frame is $frame\n");
+
+             # To do: Check the frame is valid
+             # Specifically, make sure the GENRE is one of the standard ID3 tags
+                    my $method = $MP3frames{$frame};
+
+                    $::flag_debug && msg("method is $method\n");
+
+                    # Check for tag in destfile
+                    my ( $destframe, $notused ) =
+                      $mp3->{ID3v2}->get_frame($method);
+                    $::flag_debug
+                      && msg("destframe: $destframe\nnotused: $notused\n");
+
+                    if ( $::flag_debug ) {
+                    	my $framedata = MP3::Tag::what_data( "", $method );
+	                if ( ref $framedata ) {
+	                    if ( $#$framedata == 0 ) {
+	                        msg("$method is a text frame\n");
+	                    }
+	                    else {
+                                msg("$method is a complex frame\n");
+                            }
+                        }
+                        else {
+                            msg("$method is an other frame\n");
+                        }
+                    }
+
+                    # Check for undefined frame
+                    if ( !defined $destframe ) {
+                        $destframe = '';
+                    }
+                    else {
+
+          # Bug: AudioFile::Info returns track as numeric. FLAC returns a string
+          # 3 <> 03 so the track tag will always appear modified
+                        if ( $frame eq "TRACKNUMBER" ) {
+                            if ( $destframe < 10 ) {
+                                $destframe = sprintf( "%02u", $destframe );
+                            }
+                        }
+                    }
+
+                    $::flag_debug && msg("destframe value: $destframe\n");
+
+                    # get tag from srcfile
+                    my $srcframe = $changedframes{$frame};
+
+                    $srcframe = '' if ( !defined $srcframe );
+
+                    $::flag_debug && msg("srcframe value: $srcframe\n");
+
+                    # If frames are the same...
+                    if ( $destframe eq $srcframe ) {
+
+                        # remove from frames to be written hash
+                        delete( $changedframes{$frame} );
+                    }
+                    else {
+                        $pf_tags = 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if ($::flag_debug) {
+        msg("pf_exists:    $pf_exists\n");
+        msg("pf_tags:      $pf_tags\n");
+        msg("pf_timestamp: $pf_timestamp\n");
 	}		
 
 	if ($::flag_debug) {
-		print "Tags to be written to dest file:\n";
-		print Dumper \%changedTags;
+		print "Frames to be written to dest file:\n";
+		print Dumper \%changedframes;
 	}
 
 
 	
-	if (!$pf_exists || $pf_timestamp || $pf_tags) {
-		
+	if (!$pf_exists || $pf_timestamp || $pf_tags || $::flag_force) {		
 		$::flag_info && msg("Processing \"$fbase$fext\"\n");
 
-		if (!$::flag_tagsonly && (!$pf_exists || ($pf_exists && !$pf_tags))) {
+		if ($::flag_force || (!$::flag_tagsonly && (!$pf_exists || ($pf_exists && !$pf_tags)))) {
 			# Building command used to convert file (tagging done afterwards)
 			
 			# Needs some work on quoting filenames containing special characters
@@ -372,31 +432,42 @@ sub convert_file {
 		}		
 
 		# Write the tags to the converted file
-		if ($pf_exists && ($pf_tags || $pf_timestamp)) {
+		if ($pf_exists && ($pf_tags || $pf_timestamp) || $::flag_force) {
 
-			$::flag_debug && msg("Writing tags to file\n");
+			$::flag_debug && msg("Writing frames to file\n");
 
-			# set the tag variable named $method
-			my $desttag = get_tag($destfilename);
+			my $mp3 = MP3::Tag->new($destfilename);
+			# Remove any existing tags
+			$mp3->{ID3v2}->remove_tag if exists $mp3->{ID3v2};
+			# Create a new tag
+			$mp3->new_tag("ID3v2");
 
-			foreach my $tag (keys %changedTags) {
+			foreach my $frame (keys %changedframes) {
 
-				$::flag_debug && msg("changedTag is $tag\n");
+				$::flag_debug && msg("changedframe is $frame\n");
 			
-				# To do: Check the tag is valid
+				# To do: Check the frame is valid
 				# Specifically, make sure the GENRE is one of the standard ID3 tags
-				my $method = $MP3Tags{$tag};
+				my $method = $MP3frames{$frame};
 
 				$::flag_debug && msg("method is $method\n");
 
-				my $tagstring = $changedTags{$tag};
+				my $framestring = $changedframes{$frame};
 
-				$::flag_debug && msg("Setting $tag = $tagstring\n");
+				$::flag_debug && msg("Setting $frame = $framestring\n");
 				
-				$desttag->{$method} = $tagstring;
+				# COMM is a Complex frame so needs to be treated differently.
+				if ($method eq "COMM") {
+					$mp3->{"ID3v2"}->add_frame($method, 'ENG', 'Short text', $framestring);
+				} else {
+					$mp3->{"ID3v2"}->add_frame($method, $framestring);
+				}
 			}
+			
+			$mp3->{ID3v2}->write_tag;
+			
+			$mp3->close();
 
-			set_tag($destfilename, $desttag);
 				
 			# should optionally reset the destfile timestamp to the same as the srcfile	
 			utime $srcstat->mtime, $srcstat->mtime, $destfilename;
@@ -409,114 +480,4 @@ sub INT_Handler {
 	die "Exited with SIG$signame\n";
 }
 
-# set_tag and get_tag routines taken from articles written by Teodor Zlatanov (tzz@bu.edu)
-# Part 1:	http://www-106.ibm.com/developerworks/linux/library/l-cpmp31.html
-# Part 2:	http://www-106.ibm.com/developerworks/linux/library/l-cpmp32.html
-
-sub set_tag {
-
-	my $file = shift @_;
-	my $tag  = shift @_;
-	my $mp3 = MP3::Tag->new($file);
-	if ($::flag_debug) {
-		print "Tags read from dest file:\n";
-		print Dumper $tag;
-	}
-	my $tags = $mp3->get_tags();
-	my $id3v2;
- 
-	if (ref $tags eq 'HASH' && exists $tags->{ID3v2}) {
-		$id3v2 = $tags->{ID3v2};
-	} else {
-		$id3v2 = $mp3->new_tag("ID3v2");
-	}
-
-	my %old_frames = %{$id3v2->get_frame_ids()};
- 
-	foreach my $fname (keys %$tag) {
-		$id3v2->remove_frame($fname)
-			if exists $old_frames{$fname};
-
-		if ($fname eq 'WXXX') {
-			$id3v2->add_frame('WXXX', 'ENG', 'FreeDB URL', $tag->{WXXX}) ;
-		} elsif ($fname eq 'COMM') {
-			$id3v2->add_frame('COMM', 'ENG', 'Comment', $tag->{COMM}) ;
-		} else {
-			$id3v2->add_frame($fname, $tag->{$fname});
-		}
-	}
-
-	$id3v2->write_tag();
-	return 0;
-}
-
-sub get_tag {
-
-	my %supported_frames = (
-			TIT1 => 1,
-			TIT2 => 1,
-			TRCK => 1,
-			TALB => 1,
-			TPE1 => 1,
-			COMM => 1,
-			WXXX => 1,
-			TYER => 1,
-	);
-
-	my $file    = shift @_;
-	my $upgrade = shift @_;
-	my $mp3 = MP3::Tag->new($file);
-
-	return undef unless defined $mp3;
-
-	$mp3->get_tags();
-
-	my $tag = {};
-
-	if (exists $mp3->{ID3v2}) {
-		my $id3v2 = $mp3->{ID3v2};
-		my $frames = $id3v2->supported_frames();
-		Dumper (%$frames);
-		while (my ($fname, $longname) = each %$frames) {
-			# only grab the frames we know
-			next unless exists $supported_frames{$fname};
-   
-			$tag->{$fname} = $id3v2->get_frame($fname);
-			delete $tag->{$fname} unless defined $tag->{$fname};
-			$tag->{$fname} = $tag->{$fname}->{Text} if $fname eq 'COMM';
-			$tag->{$fname} = $tag->{$fname}->{URL} if $fname eq 'WXXX';
-			$tag->{$fname} = '' unless defined $tag->{$fname};
-		}
-	} elsif (exists $mp3->{ID3v1}) {
-		warn "No ID3 v2 TAG info in $file, using the v1 tag";
-		my $id3v1 = $mp3->{ID3v1};
-		$tag->{COMM} = $id3v1->comment();
-		$tag->{TIT2} = $id3v1->song();
-		$tag->{TPE1} = $id3v1->artist();
- 		$tag->{TALB} = $id3v1->album();
-		$tag->{TYER} = $id3v1->year();
-		$tag->{TRCK} = $id3v1->track();
-		$tag->{TCON} = $id3v1->genre();
-
-#  if ($upgrade) && ($config->ACCEPT_ALL() || read_yes_no("Upgrade ID3v1 tag to ID3v2 for $file?", 1)))
-		if ($upgrade) {
-			set_tag($file, $tag);
-		}
-	} else {
-		warn "No ID3 TAG info in $file, creating it";
-		$tag = {
-			TIT1 => '',
-			TIT2 => '',
-			TPE1 => '',
-			TALB => '',
-			TYER => 9999,
-			COMM => '',
-			TCON => '',
-		};
-	}
-
-	$::flag_debug && print "Got tag ", Dumper $tag;
-
-	return $tag;
-}
 # vim:set tabstop=3:
