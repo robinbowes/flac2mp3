@@ -2,7 +2,7 @@
 #
 # flac2mp3.pl
 #
-# Version 0.2.4
+# Version 0.2.5
 #
 # Converts a directory full of flac files into a corresponding
 # directory of mp3 files
@@ -11,6 +11,11 @@
 #
 # Revision History:
 #
+# v0.2.5
+#  - Added better handling of complex frames, e.g. Comments
+#  - use File::Find::Rule instead of custom recursive sub
+#  - Moved command-line options into hash
+#  - fix up SRC track number as well as DEST 
 # v0.2.4
 #  - Handle extended characters better (accents, etc.) [thanks Dan Sully]
 #  - Don't reset timestamp of destination file
@@ -76,7 +81,7 @@ use strict;
 use Audio::FLAC::Header;
 use Data::Dumper;
 use File::Basename;
-use File::Find;
+use File::Find::Rule;
 use File::Path;
 use File::Spec;
 use File::stat;
@@ -92,8 +97,7 @@ our @flacargs = qw (
   --silent
 );
 
-# Build this array dynamically from command-line options
-# Add --quiet option by default?
+# Should I build this array dynamically from command-line options
 our @lameargs = qw (
   --preset standard
   --replaygain-accurate
@@ -103,7 +107,7 @@ our @lameargs = qw (
 # FLAC/MP3 tag/frame mapping
 # Flac: 	ALBUM  ARTIST  TITLE  DATE  GENRE  TRACKNUMBER  COMMENT
 # ID3v2:	ALBUM  ARTIST  TITLE  YEAR  GENRE  TRACK        COMMENT
-# Frame: TALB   TPE1    TIT2   TYER  TCON   TRCK         COMM
+# Frame:	TALB   TPE1    TIT2   TYER  TCON   TRCK         COMM
 
 # hash mapping FLAC tag names to MP3 frames
 our %MP3frames = (
@@ -116,20 +120,24 @@ our %MP3frames = (
     'TRACKNUMBER' => 'TRCK',
 );
 
-our %Options;
+# Hash telling us which key to use if a complex frame hash is encountered
+# For example, the COMM frame is complex and returns a hash with the
+# following keys (with example values):
+#   'Language'	    => 'ENG'
+#   'Description'   => 'Short Text'
+#   'Text'	    => 'This is the actual comment field'
+#
+# In this case, we want to grab the content of the 'Text' key.
+our %Complex_Frame_Keys = (
+    'COMM'	  => 'Text',
+);
 
-#$flag_info, $flag_debug, $flag_tagsonly, $flag_force;
+our %Options;
 
 # Catch interupts (SIGINT)
 $SIG{INT} = \&INT_Handler;
 
 GetOptions( \%Options, "quiet!", "debug!", "tagsonly!", "force!" );
-
-#    "quiet!"    => \$flag_info,
-#    "debug!"    => \$flag_debug,
-#    "tagsonly!" => \$flag_tagsonly,
-#    "force!"    => \$flag_force
-#);
 
 # info flag is the inverse of --quiet
 $Options{info} = !$Options{quiet};
@@ -153,71 +161,39 @@ die "Source directory not found: $srcdirroot\n"
 # count all flac files in srcdir
 # Display a progress report after each file, e.g. Processed 367/4394 files
 # Possibly do some timing and add a Estimated Time Remaining
-# Will need to only count files that are going to be processed. Hmmm could get complicated.
+# Will need to only count files that are going to be processed.
+# Hmmm could get complicated.
 
-find_files( $srcdirroot, $destdirroot, $srcdirroot );
+$::Options{info} && msg("Processing directory: $srcdirroot\n");
 
-1;
+my @flac_files = File::Find::Rule->file()
+        ->name( '*.flac' )
+        ->in( $srcdirroot );
 
-sub find_files {
-    my ( $srcdirroot, $destdirroot, $srcdir ) = @_;
+$::Options{info} && msg("$#flac_files flac files found. Sorting...");
 
-    $::Options{info} && msg("Processing directory: $srcdir\n");
+@flac_files = sort @flac_files;
 
-    # remove the src root directory from the beginning
-    # of the current directory to give the additional
-    # path information to be added to the destination root.
-    # Try to create the new destination directory.
-    ( my $extra_path = $srcdir ) =~ s/^\Q$srcdirroot\E//;
-    my $destdir = $destdirroot . $extra_path;
+$::Options{info} && msg("done.\n");
 
-    # get all directory entries
-    opendir( SRCDIR, $srcdir ) or die "Couldn't open directory $srcdir\n";
-    my @direntries = readdir(SRCDIR)
-      or die "Couldn't read directory entries for directory $srcdir\n";
-    closedir(SRCDIR);
+foreach my $srcfilename (@flac_files) {
 
-    # get all target files within the present directory
-    my @target_files = map { $_->[1] }    # extract pathnames
-      map { [ $_, "$srcdir/$_" ] }        # form (name, path)
-      sort                                # sort the entries (does this work?)
-      grep { /\.flac$/ }                  # just flac files
-      @direntries;
+    # get the directory containing the file
+    my $srcRelPath = File::Spec->abs2rel( $srcfilename, $srcdirroot );
+    my $destPath = File::Spec->rel2abs( $srcRelPath, $destdirroot );
 
-    # get all subdirs of the present directory
-    my @subdirs = map { $_->[1] }         # extract pathnames
-      grep { -d $_->[1] }                 # only directories
-      map { [ $_, "$srcdir/$_" ] }        # form (name, path)
-      sort                                # sort the entries (does this work?)
-      grep { !/^\.\.?$/ }                 # not . or ..
-      @direntries;
+    my ( $fbase, $destdir, $fext ) = fileparse( $destPath, '\.flac$' );
+    my $destfilename = $destdir . $fbase . ".mp3";
 
     # Create the destination directory if it doesn't already exist
     mkpath($destdir)
       or die "Can't create directory $destdir\n"
       unless -d $destdir;
 
-    # process all files found in this directory
-    foreach my $srcfilename (@target_files) {
-        if ( $::Options{debug} ) {
-            msg("target_files: ");
-            print Dumper @target_files;
-            $::Options{debug} && msg("srcfilename: $srcfilename\n");
-            $::Options{debug} && msg("destdir: $destdir\n");
-        }
-        convert_file( $srcfilename, $destdir );
-
-        # The following construct generates silly warnings so I've removed it
-        # Suggested by Darren Warner <darren@dazwin.com>
-        # eval convert_file($srcfilename, $destdir);
-        # warn($@) if $@;
-    }
-
-    # process any subdirs of present directory
-    foreach my $srcsubdir (@subdirs) {
-        &find_files( $srcdirroot, $destdirroot, $srcsubdir );
-    }
+    convert_file( $srcfilename, $destfilename );
 }
+
+1;
 
 sub showusage {
     print <<"EOT";
@@ -236,7 +212,7 @@ sub msg {
 }
 
 sub convert_file {
-    my ( $srcfilename, $destdir ) = @_;
+    my ( $srcfilename, $destfilename ) = @_;
 
     # To do:
     #   Compare tags even if src and dest file have same timestamp
@@ -245,13 +221,6 @@ sub convert_file {
     # get srcfile timestamp
     my $srcstat = stat($srcfilename);
     my $deststat;
-
-    my $srcRelPath = File::Spec->abs2rel( $srcfilename, $srcdirroot );
-
-    my $destPath = File::Spec->rel2abs( $srcRelPath, $destdirroot );
-
-    my ( $fbase, $fdir, $fext ) = fileparse( $destPath, '\.flac$' );
-    my $destfilename = $fdir . $fbase . ".mp3";
 
     $::Options{debug} && msg("srcfile: $srcfilename\n");
     $::Options{debug} && msg("destfile: $destfilename\n");
@@ -273,20 +242,24 @@ sub convert_file {
             $changedframes{$frame} = $srcframes->{$frame};
         }
     }
+    
+    # Fix up TRACKNUMBER
+    my $srcTrackNum = $changedframes{'TRACKNUMBER'} * 1;
+    if ($srcTrackNum < 10) {
+	$changedframes{'TRACKNUMBER'} = sprintf( "%02u", $srcTrackNum );
+    }
 
     if ( $::Options{debug} ) {
         print "Tags we know how to deal with from source file:\n";
         print Dumper \%changedframes;
     }
 
-    # File Processing flags
+    # Initialise file processing flags
     my %pflags = (
         exists    => 0,
         tags      => 0,
         timestamp => 1
     );
-
-    $::Options{debug} && msg("destfilename: $destfilename\n");
 
     # if destfile already exists
     if ( -e $destfilename ) {
@@ -315,8 +288,6 @@ sub convert_file {
             $pflags{timestamp} = 0;
         }
 
-        $::Options{debug} && msg("pf_timestamp: $pflags{timestamp}\n");
-
         # If the source file os not newer than dest file
         if ( !$pflags{timestamp} ) {
 
@@ -342,55 +313,45 @@ sub convert_file {
 
                     $::Options{debug} && msg("frame is $frame\n");
 
-             # To do: Check the frame is valid
-             # Specifically, make sure the GENRE is one of the standard ID3 tags
+                # To do: Check the frame is valid
+		# Specifically, make sure the GENRE is one of the standard ID3 tags
                     my $method = $MP3frames{$frame};
 
                     $::Options{debug} && msg("method is $method\n");
 
                     # Check for tag in destfile
                     my ( $destframe, @info ) = $ID3v2->get_frame($method);
-                    if ( !defined $destframe ) {
-                        $destframe = '';
-                    }
-
+                    $destframe = '' if ( !defined $destframe );
+		    
                     $::Options{debug}
-                      && print Dumper $destframe,
-                      @info;    #msg("destframe: $destframe\ninfo: @info\n");
+                      && print Dumper $destframe, @info;
+		    
+		    my $dest_text;
 
-                    if ( $::Options{debug} ) {
-                        my $framedata = $ID3v2->what_data( "", $method );
-                        if ( ref $framedata ) {
-                            if ( $#$framedata == 0 ) {
-                                msg("$method is a text frame\n");
-                            }
-                            else {
-                                msg("$method is a complex frame\n");
-                            }
-                        }
-                        else {
-                            msg("$method is an other frame\n");
-                        }
-                    }
+		    # check for complex frame (e.g. Comments)
+		    if (ref $destframe) {
+			my $cfname = $Complex_Frame_Keys{$method};
+			$dest_text = $$destframe{$cfname};
+		    } else {
+			$dest_text = $destframe
+		    }
 
-          # Bug: AudioFile::Info returns track as numeric. FLAC returns a string
-          # 3 <> 03 so the track tag will always appear modified
+		    # Fix up TRACKNUMBER
                     if ( $frame eq "TRACKNUMBER" ) {
                         if ( $destframe < 10 ) {
-                            $destframe = sprintf( "%02u", $destframe );
+                            $dest_text = sprintf( "%02u", $destframe );
                         }
                     }
 
                     # get tag from srcfile
                     my $srcframe = utf8toLatin1( $changedframes{$frame} );
-
                     $srcframe = '' if ( !defined $srcframe );
 
                     $::Options{debug} && msg("srcframe value: $srcframe\n");
-                    $::Options{debug} && msg("destframe value: $destframe\n");
+                    $::Options{debug} && msg("destframe value: $dest_text\n");
 
                     # If set the flag if any frame is different
-                    if ( $destframe ne $srcframe ) {
+                    if ( $dest_text ne $srcframe ) {
                         $pflags{tags} = 1;
                     }
                 }
@@ -414,7 +375,7 @@ sub convert_file {
         || $pflags{tags}
         || $::Options{force} )
     {
-        $::Options{info} && msg("Processing \"$fbase$fext\"\n");
+        $::Options{info} && msg("Processing \"$srcfilename\"\n");
 
         if (
             $::Options{force}
@@ -425,7 +386,6 @@ sub convert_file {
         {
 
             # Building command used to convert file (tagging done afterwards)
-
             # Needs some work on quoting filenames containing special characters
             my $quotedsrc       = $srcfilename;
             my $quoteddest      = $destfilename;
@@ -442,7 +402,7 @@ sub convert_file {
               && msg("Exit value from convert command: $exit_value\n");
 
             if ($exit_value) {
-                print("$convert_command failed with exit code $exit_value\n");
+                msg("$convert_command failed with exit code $exit_value\n");
 
                 # delete the destfile if it exists
                 unlink $destfilename;
@@ -522,6 +482,7 @@ sub utf8toLatin1 {
     return $data;
 }
 
-# vim:set tabstop=3:
+# vim:set softtabstop=4:
+# vim:set shiftwidth=4:
 
 __END__
