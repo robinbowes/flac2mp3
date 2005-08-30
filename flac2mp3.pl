@@ -2,7 +2,7 @@
 #
 # flac2mp3.pl
 #
-# Version 0.2.5
+# Version 0.2.6
 #
 # Converts a directory full of flac files into a corresponding
 # directory of mp3 files
@@ -10,74 +10,11 @@
 # Robin Bowes <robin@robinbowes.com>
 #
 # Revision History:
-#
-# v0.2.5
-#  - Added better handling of complex frames, e.g. Comments
-#  - use File::Find::Rule instead of custom recursive sub
-#  - Moved command-line options into hash
-#  - fix up SRC track number as well as DEST 
-# v0.2.4
-#  - Handle extended characters better (accents, etc.) [thanks Dan Sully]
-#  - Don't reset timestamp of destination file
-#  - Moved flags into a hash structures (%Options, %pflags}
-#  - Other code restructuring
-# v0.2.3
-#  - Added --force option to force conversion
-#  - files/directories now processed alphabetically
-#  - Now handles Comments correctly (Comments are complex frames)
-#  - Tidied up code with perltidy (http://perltidy.sf.net)
-# v0.2.2
-#  - Bug-fix: timestamp comparison not quite right
-#  - Be more robust when converting files
-#    (thanks Darren Warner <darren@dazwin.com>)
-# v0.2.1
-#  - Bug-fix: omitted File::Path module include
-# v0.2.0
-#  - Only create directories if files are found in them
-#  - Make output less cluttered (only display filenames, not whole path)
-#  - Changed command-line options.
-#  - Major overhaul of tag handling. Now using MP3::Tag module
-#    to write tags to mp3 files. Allows tags to be read separately
-# v0.1.4
-#  - Fix for files with multiple periods in filename, e.g. "01 - Back In
-#    The U.S.S.R..flac" would be converted as "Back In The U.mp3"
-#  - Fix for timestamp comparison (got it the right way round this
-#    time!)
-# v0.1.3
-#  - added --quiet option to flac and lame commands
-#  - only run conversion if dest file doesn't exist or if src file is
-#    newer than dest file
-#  - set modification time of dest file to same as src file
-#  - check exit value of conversion command
-#  - fixed problem with certain characters in file/directory name
-#  - added rudimentary SIGINT handling
-# v0.1.2
-#  - Fixed filename quoting
-# v0.1.1
-#  - Changes to filename quoting
-# v0.1.0
-#  - Initial version
-#
-# To-do:
-#  - Extend to apply all legal tags in FLAC field (esp. Composer, Conductor, etc.)
-#  - Still falls over with certain characters in filename, e.g.
-#    Rock `N' Roll Suicide.flac
-#  - Clean up filepaths (check for double // in dirnames)
-#  - Clean up and rationalise program output, e.g. produce a sensible
-#    level of output by default unless a --quiet switch is used
-#  - Investigate using Audio::FLAC::Decode and Audio::MPEG instead of
-#    flac and lame programs used from system call
-#  - Write OO Audio file objects that know how to decode/encode/get
-#    tags/set tags for themselves - should open up the way to allow for
-#    transcoding between additional formats.
-#  - Write README file and bundle flac2mp3.pl into a tarball
-#  - Write "Usage" method to document command-line switches
-#  - google for a standard perl script template include things like
-#    options, pod, GPL statement, how to set program version, etc. etc.
-#  - Use Carp module
-#  - Use Shell::Quote module
+#  - See changelog.txt
 
 use strict;
+use FindBin;
+use lib "$FindBin::Bin/lib";
 use Audio::FLAC::Header;
 use Data::Dumper;
 use File::Basename;
@@ -88,8 +25,20 @@ use File::stat;
 use Getopt::Long;
 use MP3::Tag;
 
-our $flaccmd = "/usr/bin/flac";
-our $lamecmd = "/usr/bin/lame";
+# ------- User-config options start here --------
+# Assume flac and lame programs are in the path.
+# If not, put full path to programs here.
+our $flaccmd = "flac";
+our $lamecmd = "lame";
+
+# Modify lame options if required
+our @lameargs = qw (
+  --preset standard
+  --replaygain-accurate
+  --quiet
+);
+
+# -------- User-config options end here ---------
 
 our @flacargs = qw (
   --decode
@@ -97,17 +46,10 @@ our @flacargs = qw (
   --silent
 );
 
-# Should I build this array dynamically from command-line options
-our @lameargs = qw (
-  --preset standard
-  --replaygain-accurate
-  --quiet
-);
-
 # FLAC/MP3 tag/frame mapping
-# Flac: 	ALBUM  ARTIST  TITLE  DATE  GENRE  TRACKNUMBER  COMMENT
-# ID3v2:	ALBUM  ARTIST  TITLE  YEAR  GENRE  TRACK        COMMENT
-# Frame:	TALB   TPE1    TIT2   TYER  TCON   TRCK         COMM
+# Flac:     ALBUM  ARTIST  TITLE  DATE  GENRE  TRACKNUMBER  COMMENT
+# ID3v2:    ALBUM  ARTIST  TITLE  YEAR  GENRE  TRACK        COMMENT
+# Frame:    TALB   TPE1    TIT2   TYER  TCON   TRCK         COMM
 
 # hash mapping FLAC tag names to MP3 frames
 our %MP3frames = (
@@ -123,14 +65,12 @@ our %MP3frames = (
 # Hash telling us which key to use if a complex frame hash is encountered
 # For example, the COMM frame is complex and returns a hash with the
 # following keys (with example values):
-#   'Language'	    => 'ENG'
+#   'Language'      => 'ENG'
 #   'Description'   => 'Short Text'
-#   'Text'	    => 'This is the actual comment field'
+#   'Text'      => 'This is the actual comment field'
 #
 # In this case, we want to grab the content of the 'Text' key.
-our %Complex_Frame_Keys = (
-    'COMM'	  => 'Text',
-);
+our %Complex_Frame_Keys = ( 'COMM' => 'Text', );
 
 our %Options;
 
@@ -166,9 +106,7 @@ die "Source directory not found: $srcdirroot\n"
 
 $::Options{info} && msg("Processing directory: $srcdirroot\n");
 
-my @flac_files = File::Find::Rule->file()
-        ->name( '*.flac' )
-        ->in( $srcdirroot );
+my @flac_files = File::Find::Rule->file()->name('*.flac')->in($srcdirroot);
 
 $::Options{info} && msg("$#flac_files flac files found. Sorting...");
 
@@ -180,7 +118,7 @@ foreach my $srcfilename (@flac_files) {
 
     # get the directory containing the file
     my $srcRelPath = File::Spec->abs2rel( $srcfilename, $srcdirroot );
-    my $destPath = File::Spec->rel2abs( $srcRelPath, $destdirroot );
+    my $destPath   = File::Spec->rel2abs( $srcRelPath,  $destdirroot );
 
     my ( $fbase, $destdir, $fext ) = fileparse( $destPath, '\.flac$' );
     my $destfilename = $destdir . $fbase . ".mp3";
@@ -242,11 +180,11 @@ sub convert_file {
             $changedframes{$frame} = $srcframes->{$frame};
         }
     }
-    
+
     # Fix up TRACKNUMBER
     my $srcTrackNum = $changedframes{'TRACKNUMBER'} * 1;
-    if ($srcTrackNum < 10) {
-	$changedframes{'TRACKNUMBER'} = sprintf( "%02u", $srcTrackNum );
+    if ( $srcTrackNum < 10 ) {
+        $changedframes{'TRACKNUMBER'} = sprintf( "%02u", $srcTrackNum );
     }
 
     if ( $::Options{debug} ) {
@@ -313,8 +251,8 @@ sub convert_file {
 
                     $::Options{debug} && msg("frame is $frame\n");
 
-                # To do: Check the frame is valid
-		# Specifically, make sure the GENRE is one of the standard ID3 tags
+             # To do: Check the frame is valid
+             # Specifically, make sure the GENRE is one of the standard ID3 tags
                     my $method = $MP3frames{$frame};
 
                     $::Options{debug} && msg("method is $method\n");
@@ -322,21 +260,22 @@ sub convert_file {
                     # Check for tag in destfile
                     my ( $destframe, @info ) = $ID3v2->get_frame($method);
                     $destframe = '' if ( !defined $destframe );
-		    
+
                     $::Options{debug}
                       && print Dumper $destframe, @info;
-		    
-		    my $dest_text;
 
-		    # check for complex frame (e.g. Comments)
-		    if (ref $destframe) {
-			my $cfname = $Complex_Frame_Keys{$method};
-			$dest_text = $$destframe{$cfname};
-		    } else {
-			$dest_text = $destframe
-		    }
+                    my $dest_text;
 
-		    # Fix up TRACKNUMBER
+                    # check for complex frame (e.g. Comments)
+                    if ( ref $destframe ) {
+                        my $cfname = $Complex_Frame_Keys{$method};
+                        $dest_text = $$destframe{$cfname};
+                    }
+                    else {
+                        $dest_text = $destframe;
+                    }
+
+                    # Fix up TRACKNUMBER
                     if ( $frame eq "TRACKNUMBER" ) {
                         if ( $destframe < 10 ) {
                             $dest_text = sprintf( "%02u", $destframe );

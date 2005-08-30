@@ -1,0 +1,54 @@
+v0.2.6
+ - Now ships with additional non-standard modules
+ - Now works on Windows (tested with ActiveState Perl v5.8.7
+ - Moved Revision history to separate file
+ - Added some documentation
+v0.2.5
+ - Added better handling of complex frames, e.g. Comments
+ - use File::Find::Rule instead of custom recursive sub
+ - Moved command-line options into hash
+ - fix up SRC track number as well as DEST
+v0.2.4
+ - Handle extended characters better (accents, etc.) [thanks Dan Sully]
+ - Don't reset timestamp of destination file
+ - Moved flags into a hash structures (%Options, %pflags}
+ - Other code restructuring
+v0.2.3
+ - Added --force option to force conversion
+ - files/directories now processed alphabetically
+ - Now handles Comments correctly (Comments are complex frames)
+ - Tidied up code with perltidy (http://perltidy.sf.net)
+v0.2.2
+ - Bug-fix: timestamp comparison not quite right
+ - Be more robust when converting files
+   (thanks Darren Warner <darren@dazwin.com>)
+v0.2.1
+ - Bug-fix: omitted File::Path module include
+v0.2.0
+ - Only create directories if files are found in them
+ - Make output less cluttered (only display filenames, not whole path)
+ - Changed command-line options.
+ - Major overhaul of tag handling. Now using MP3::Tag module
+   to write tags to mp3 files. Allows tags to be read separately
+v0.1.4
+ - Fix for files with multiple periods in filename, e.g. "01 - Back In
+   The U.S.S.R..flac" would be converted as "Back In The U.mp3"
+ - Fix for timestamp comparison (got it the right way round this
+   time!)
+v0.1.3
+ - added --quiet option to flac and lame commands
+ - only run conversion if dest file doesn't exist or if src file is
+   newer than dest file
+ - set modification time of dest file to same as src file
+ - check exit value of conversion command
+ - fixed problem with certain characters in file/directory name quoting
+v0.1.1
+ - Changes to filename quoting
+v0.1.0
+ - Initial version
+v0.1.2
+ - Fixed filename quoting
+v0.1.1
+ - Changes to filename quoting
+v0.1.0
+ - Initial version
