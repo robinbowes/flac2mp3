@@ -2,7 +2,7 @@
 #
 # flac2mp3.pl
 #
-# Version 0.2.6
+# Version 0.2.7
 #
 # Converts a directory full of flac files into a corresponding
 # directory of mp3 files
@@ -53,13 +53,31 @@ our @flacargs = qw (
 
 # hash mapping FLAC tag names to MP3 frames
 our %MP3frames = (
-    'ALBUM'       => 'TALB',
-    'ARTIST'      => 'TPE1',
-    'COMMENT'     => 'COMM',
-    'DATE'        => 'TYER',
-    'GENRE'       => 'TCON',
-    'TITLE'       => 'TIT2',
-    'TRACKNUMBER' => 'TRCK',
+    'ALBUM'                   => 'TALB',
+    'ARTIST'                  => 'TPE1',
+    'COMMENT'                 => 'COMM',
+    'DATE'                    => 'TYER',
+    'GENRE'                   => 'TCON',
+    'TITLE'                   => 'TIT2',
+    'TRACKNUMBER'             => 'TRCK',
+    'MUSICBRAINZ_ALBUMID'     => 'TXXX',
+    'MUSICBRAINZ_ALBUMSTATUS' => 'TXXX',
+    'MUSICBRAINZ_ALBUMTYPE'   => 'TXXX',
+    'MUSICBRAINZ_ARTISTID'    => 'TXXX',
+    'MUSICBRAINZ_SORTNAME'    => 'TXXX',
+    'MUSICBRAINZ_TRACKID'     => 'UFID',
+    'MUSICBRAINZ_TRMID'       => 'TXXX'
+);
+
+our %MP3frametexts = (
+    'MUSICBRAINZ_ALBUMARTISTID' => 'MusicBrainz Album Artist Id',
+    'MUSICBRAINZ_ALBUMID'       => 'MusicBrainz Album Id',
+    'MUSICBRAINZ_ALBUMSTATUS'   => 'MusicBrainz Album Status',
+    'MUSICBRAINZ_ALBUMTYPE'     => 'MusicBrainz Album Type',
+    'MUSICBRAINZ_ARTISTID'      => 'MusicBrainz Artist Id',
+    'MUSICBRAINZ_SORTNAME'      => 'MusicBrainz Sortname',
+    'MUSICBRAINZ_TRACKID'       => 'MB-Trackid',
+    'MUSICBRAINZ_TRMID'         => 'MusicBrainz TRM Id',
 );
 
 # Hash telling us which key to use if a complex frame hash is encountered
@@ -70,7 +88,7 @@ our %MP3frames = (
 #   'Text'      => 'This is the actual comment field'
 #
 # In this case, we want to grab the content of the 'Text' key.
-our %Complex_Frame_Keys = ( 'COMM' => 'Text', );
+our %Complex_Frame_Keys = ( 'COMM' => 'Text', 'TXXX' => 'Description' );
 
 our %Options;
 
@@ -104,9 +122,13 @@ die "Source directory not found: $srcdirroot\n"
 # Will need to only count files that are going to be processed.
 # Hmmm could get complicated.
 
+# Change directory into srcdirroot
+chdir $srcdirroot;
+
 $::Options{info} && msg("Processing directory: $srcdirroot\n");
 
-my @flac_files = File::Find::Rule->file()->name('*.flac')->in($srcdirroot);
+# Now look for files in the current directory
+my @flac_files = File::Find::Rule->file()->name('*.flac')->in('.');
 
 $::Options{info} && msg("$#flac_files flac files found. Sorting...");
 
@@ -114,21 +136,40 @@ $::Options{info} && msg("$#flac_files flac files found. Sorting...");
 
 $::Options{info} && msg("done.\n");
 
+# Get directories from destdirroot and put in an array
+my ( $destroot_volume, $destroot_directories, $destroot_file ) =
+  File::Spec->splitpath( $destdirroot, 1 );
+my @destroot_dirs = File::Spec->splitdir($destroot_directories);
+
 foreach my $srcfilename (@flac_files) {
 
-    # get the directory containing the file
-    my $srcRelPath = File::Spec->abs2rel( $srcfilename, $srcdirroot );
-    my $destPath   = File::Spec->rel2abs( $srcRelPath,  $destdirroot );
+    # Get directories in src file and put in an array
+    my ( $src_volume, $src_directories, $src_file ) =
+      File::Spec->splitpath($srcfilename);
+    my @src_dirs = File::Spec->splitdir($src_directories);
 
-    my ( $fbase, $destdir, $fext ) = fileparse( $destPath, '\.flac$' );
-    my $destfilename = $destdir . $fbase . ".mp3";
+    # Join together dest_root and src_dirs
+    my @dest_dirs;
+    push @dest_dirs, @destroot_dirs;
+    push @dest_dirs, @src_dirs;
+
+    # Join all the dest_dirs back together again
+    my $dest_directory = File::Spec->catdir(@dest_dirs);
+
+    # Get the basename of the src file
+    my ( $fbase, $fdir, $fext ) = fileparse( $src_file, qr{\.flac} );
+
+    # Now join it all together to get the complete path of the dest_file
+    my $dest_filename =
+      File::Spec->catpath( $destroot_volume, $dest_directory, $fbase . '.mp3' );
+    my $dest_dir = File::Spec->catpath( $destroot_volume, $dest_directory, '' );
 
     # Create the destination directory if it doesn't already exist
-    mkpath($destdir)
-      or die "Can't create directory $destdir\n"
-      unless -d $destdir;
+    mkpath($dest_dir)
+      or die "Can't create directory $dest_dir\n"
+      unless -d $dest_dir;
 
-    convert_file( $srcfilename, $destfilename );
+    convert_file( $srcfilename, $dest_filename );
 }
 
 1;
@@ -387,6 +428,14 @@ sub convert_file {
                 if ( $method eq "COMM" ) {
                     $mp3->{"ID3v2"}
                       ->add_frame( $method, 'ENG', 'Short text', $framestring );
+                }
+                elsif ( $method eq "TXXX" ) {
+
+                    my $frametext = $MP3frametexts{$frame};
+                    $frametext = $frame if ( !( defined($frametext) ) );
+
+                    $mp3->{"ID3v2"}
+                      ->add_frame( $method, 'ENG', $frametext, $framestring );
                 }
                 else {
                     $mp3->{"ID3v2"}->add_frame( $method, $framestring );

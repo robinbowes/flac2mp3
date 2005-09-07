@@ -1,3 +1,8 @@
+v0.2.7
+ - changed the way file and directory names are processed to be 
+   more portable (Now make more extensive use of File::Spec)
+ - Now processes MusicBrainz tags
+   (thanks Hakan <hakan@gurkensalat.com>)
 v0.2.6
  - Now ships with additional non-standard modules
  - Now works on Windows (tested with ActiveState Perl v5.8.7
