@@ -2,14 +2,14 @@
 #
 # flac2mp3.pl
 #
-# Version 0.2.7
+# Version 0.2.8
 #
 # Converts a directory full of flac files into a corresponding
 # directory of mp3 files
 #
 # Robin Bowes <robin@robinbowes.com>
 #
-# Revision History:
+# Release History:
 #  - See changelog.txt
 
 use strict;
@@ -165,7 +165,7 @@ if ( $::Options{info} ) {
     my $file_count = @flac_files; # array in scalr context returns no. items
     my $files_word = 'file';
     if ($file_count > 1) {
-	$files_word .= 's';
+    $files_word .= 's';
     }
     msg("$file_count flac $files_word found. Sorting...");
 }
