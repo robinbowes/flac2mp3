@@ -1,3 +1,13 @@
+v0.2.8
+ - added new options:
+     --usage 
+     --help
+     --version
+ - follow symlinks when searching for files
+   (thanks Max Spicer <max-bugzilla@csl.gov.uk>
+ - fixed bug when directories specified as relative paths
+   (thanks Max Spicer <max-bugzilla@csl.gov.uk>
+ - fixed bug in count of no. flac files found (ticket #1)
 v0.2.7
  - changed the way file and directory names are processed to be 
    more portable (Now make more extensive use of File::Spec)

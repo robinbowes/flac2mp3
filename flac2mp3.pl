@@ -66,7 +66,11 @@ our %MP3frames = (
     'MUSICBRAINZ_ARTISTID'    => 'TXXX',
     'MUSICBRAINZ_SORTNAME'    => 'TXXX',
     'MUSICBRAINZ_TRACKID'     => 'UFID',
-    'MUSICBRAINZ_TRMID'       => 'TXXX'
+    'MUSICBRAINZ_TRMID'       => 'TXXX',
+#    'REPLAYGAIN_TRACK_PEAK'   => 'TXXX',
+#    'REPLAYGAIN_TRACK_GAIN'   => 'TXXX',
+#    'REPLAYGAIN_ALBUM_PEAK'   => 'TXXX',
+#    'REPLAYGAIN_ALBUM_GAIN'   => 'TXXX',
 );
 
 our %MP3frametexts = (
@@ -78,6 +82,10 @@ our %MP3frametexts = (
     'MUSICBRAINZ_SORTNAME'      => 'MusicBrainz Sortname',
     'MUSICBRAINZ_TRACKID'       => 'MB-Trackid',
     'MUSICBRAINZ_TRMID'         => 'MusicBrainz TRM Id',
+    'REPLAYGAIN_TRACK_PEAK'     => 'REPLAYGAIN_TRACK_PEAK',
+    'REPLAYGAIN_TRACK_GAIN'     => 'REPLAYGAIN_TRACK_GAIN',
+    'REPLAYGAIN_ALBUM_PEAK'     => 'REPLAYGAIN_ALBUM_PEAK',
+    'REPLAYGAIN_ALBUM_GAIN'     => 'REPLAYGAIN_ALBUM_GAIN',
 );
 
 # Hash telling us which key to use if a complex frame hash is encountered
@@ -95,7 +103,15 @@ our %Options;
 # Catch interupts (SIGINT)
 $SIG{INT} = \&INT_Handler;
 
-GetOptions( \%Options, "quiet!", "debug!", "tagsonly!", "force!" );
+GetOptions( \%Options,
+            "quiet!", 
+            "debug!",
+            "tagsonly!",
+            "force!",
+            "usage",
+            "help",
+            "version"
+          );
 
 # info flag is the inverse of --quiet
 $Options{info} = !$Options{quiet};
@@ -111,7 +127,16 @@ $| = 1;
 
 my ( $srcdirroot, $destdirroot ) = @ARGV;
 
-showusage() if ( !defined $srcdirroot || !defined $destdirroot );
+showversion() if ( $Options{version} );
+showhelp() if ( $Options{help} );
+showusage() if ( !defined $srcdirroot ||
+                 !defined $destdirroot ||
+                 $Options{usage});
+
+
+# Convert directories to absolute paths
+$srcdirroot = File::Spec->rel2abs($srcdirroot);
+$destdirroot = File::Spec->rel2abs($destdirroot);
 
 die "Source directory not found: $srcdirroot\n"
   unless -d $srcdirroot;
@@ -128,9 +153,22 @@ chdir $srcdirroot;
 $::Options{info} && msg("Processing directory: $srcdirroot\n");
 
 # Now look for files in the current directory
-my @flac_files = File::Find::Rule->file()->name('*.flac')->in('.');
+# (following symlinks)
+my @flac_files = File::Find::Rule->file()
+                                 ->extras({ follow => 1 })
+                                 ->name('*.flac')
+                                 ->in('.');
 
-$::Options{info} && msg("$#flac_files flac files found. Sorting...");
+$::Options{debug} && print Dumper(@flac_files) . "\n";
+
+if ( $::Options{info} ) {
+    my $file_count = @flac_files; # array in scalr context returns no. items
+    my $files_word = 'file';
+    if ($file_count > 1) {
+	$files_word .= 's';
+    }
+    msg("$file_count flac $files_word found. Sorting...");
+}
 
 @flac_files = sort @flac_files;
 
