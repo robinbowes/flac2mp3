@@ -239,8 +239,8 @@ sub convert_file {
     my $srcstat = stat($srcfilename);
     my $deststat;
 
-    $::Options{debug} && msg("srcfile: $srcfilename\n");
-    $::Options{debug} && msg("destfile: $destfilename\n");
+    $::Options{debug} && msg("srcfile: '$srcfilename'\n");
+    $::Options{debug} && msg("destfile: '$destfilename'\n");
 
     # create object to access flac tags
     my $srcfile = Audio::FLAC::Header->new($srcfilename);
@@ -283,7 +283,7 @@ sub convert_file {
 
         $pflags{exists} = 1;
 
-        $::Options{debug} && msg("destfile exists: $destfilename\n");
+        $::Options{debug} && msg("destfile exists: '$destfilename'\n");
 
         # get destfile timestamp
         $deststat = stat($destfilename);
@@ -328,13 +328,13 @@ sub convert_file {
                 # loop over all valid destfile frames
                 foreach my $frame ( keys %MP3frames ) {
 
-                    $::Options{debug} && msg("frame is $frame\n");
+                    $::Options{debug} && msg("frame is '$frame'\n");
 
-             # To do: Check the frame is valid
-             # Specifically, make sure the GENRE is one of the standard ID3 tags
+                    # To do: Check the frame is valid
+                    # Specifically, make sure the GENRE is one of the standard ID3 tags
                     my $method = $MP3frames{$frame};
 
-                    $::Options{debug} && msg("method is $method\n");
+                    $::Options{debug} && msg("method is '$method'\n");
 
                     # Check for tag in destfile
                     my ( $destframe, @info ) = $ID3v2->get_frame($method);
@@ -365,8 +365,8 @@ sub convert_file {
                     my $srcframe = utf8toLatin1( $changedframes{$frame} );
                     $srcframe = '' if ( !defined $srcframe );
 
-                    $::Options{debug} && msg("srcframe value: $srcframe\n");
-                    $::Options{debug} && msg("destframe value: $dest_text\n");
+                    $::Options{debug} && msg("srcframe value: '$srcframe'\n");
+                    $::Options{debug} && msg("destframe value: '$dest_text'\n");
 
                     # If set the flag if any frame is different
                     if ( $dest_text ne $srcframe ) {
@@ -449,7 +449,7 @@ sub convert_file {
 
             foreach my $frame ( keys %changedframes ) {
 
-                $::Options{debug} && msg("changedframe is $frame\n");
+                $::Options{debug} && msg("changedframe is '$frame'\n");
 
              # To do: Check the frame is valid
              # Specifically, make sure the GENRE is one of the standard ID3 tags
@@ -460,7 +460,7 @@ sub convert_file {
                 # Convert utf8 string to Latin1 charset
                 my $framestring = utf8toLatin1( $changedframes{$frame} );
 
-                $::Options{debug} && msg("Setting $frame = $framestring\n");
+                $::Options{debug} && msg("Setting $frame = '$framestring'\n");
 
                 # COMM is a Complex frame so needs to be treated differently.
                 if ( $method eq "COMM" ) {
