@@ -79,7 +79,7 @@ our %MP3frametexts = (
     'MUSICBRAINZ_ALBUMTYPE'     => 'MusicBrainz Album Type',
     'MUSICBRAINZ_ARTISTID'      => 'MusicBrainz Artist Id',
     'MUSICBRAINZ_SORTNAME'      => 'MusicBrainz Sortname',
-    'MUSICBRAINZ_TRACKID'       => 'MB-Trackid',
+    'MUSICBRAINZ_TRACKID'       => 'MusicBrainz Trackid',
     'MUSICBRAINZ_TRMID'         => 'MusicBrainz TRM Id',
     'REPLAYGAIN_TRACK_PEAK'     => 'REPLAYGAIN_TRACK_PEAK',
     'REPLAYGAIN_TRACK_GAIN'     => 'REPLAYGAIN_TRACK_GAIN',
@@ -95,7 +95,7 @@ our %MP3frametexts = (
 #   'Text'      => 'This is the actual comment field'
 #
 # In this case, we want to grab the content of the 'Text' key.
-our %Complex_Frame_Keys = ( 'COMM' => 'Text', 'TXXX' => 'Description' );
+our %Complex_Frame_Keys = ( 'COMM' => 'Text', 'TXXX' => 'Text', 'UFID' => 'Text');
 
 our %Options;
 
@@ -352,7 +352,9 @@ sub convert_file {
                     else {
                         $dest_text = $destframe;
                     }
-
+		    
+                    $::Options{debug}
+                        && print "\$dest_text: " . Dumper $dest_text;
                     # Fix up TRACKNUMBER
                     if ( $frame eq "TRACKNUMBER" ) {
                         if ( $destframe < 10 ) {
@@ -461,19 +463,23 @@ sub convert_file {
 
                 $::Options{debug} && msg("Setting $frame = '$framestring'\n");
 
-                # COMM is a Complex frame so needs to be treated differently.
+                # COMM, TXX, and UFID are Complex frames that must be
+		# treated differently.
                 if ( $method eq "COMM" ) {
                     $mp3->{"ID3v2"}
                       ->add_frame( $method, 'ENG', 'Short text', $framestring );
                 }
                 elsif ( $method eq "TXXX" ) {
-
                     my $frametext = $MP3frametexts{$frame};
                     $frametext = $frame if ( !( defined($frametext) ) );
-
                     $mp3->{"ID3v2"}
                       ->add_frame( $method, 'ENG', $frametext, $framestring );
                 }
+		elsif ( $method eq 'UFID' ) {
+		    my $frametext = $MP3frametexts{$frame};
+		    $mp3->{'ID3v2'}
+		      ->add_frame( $method, $framestring, $frametext );
+		}
                 else {
                     $mp3->{"ID3v2"}->add_frame( $method, $framestring );
                 }
