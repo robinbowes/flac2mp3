@@ -34,7 +34,6 @@ our $lamecmd = "lame";
 # Modify lame options if required
 our @lameargs = qw (
   --preset standard
-  --replaygain-accurate
   --quiet
 );
 
