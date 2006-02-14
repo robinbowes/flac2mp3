@@ -12,13 +12,19 @@ use File::Basename;
 
 use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3 $VERSION @ISA/;
 
-$VERSION="0.97";
+$VERSION="0.9705";
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
 $trustencoding = 1 unless defined $trustencoding;
 
 my $decode_utf8 = $ENV{MP3TAG_DECODE_UTF8};
+$decode_utf8 = 1 unless defined $decode_utf8;
+my $encode_utf8 = $decode_utf8;
+
+my $default_encoding_read  = $ENV{MP3TAG_DECODE_DEFAULT};
+# Not implemented yet...
+my $default_encoding_write = $ENV{MP3TAG_ENCODE_DEFAULT};
 
 =pod
 
@@ -29,7 +35,7 @@ MP3::Tag::ID3v2 - Read / Write ID3v2.x.y tags from mp3 audio files
 =head1 SYNOPSIS
 
 MP3::Tag::ID3v2 supports
-  * Reading of ID3v2.2.0 and ID3v2.3.0 tags
+  * Reading of ID3v2.2.0 and ID3v2.3.0 tags (some ID3v2.4.0 frames too)
   * Writing of ID3v2.3.0 tags
 
 MP3::Tag::ID3v2 is designed to be called from the MP3::Tag module.
@@ -128,9 +134,16 @@ the given short name.
 # gid  => group id, if any
 #
 
+sub un_syncsafe_4bytes ($) {
+    my ($rawsize,$size) = (shift, 0);
+    foreach my $b (unpack("C4", $rawsize)) {
+	$size = ($size << 7) + $b;
+    }
+    return $size;
+}
 
 sub get_frame_ids {
-        my $self=shift;
+        my $self = shift;		# Tag
         my $basic = shift;
 
 	# frame headers format for the different majors
@@ -147,16 +160,16 @@ sub get_frame_ids {
 		return \%return;
 	}
 
-	my $pos=$self->{frame_start};
-	if ($self->{flags}->{extheader}) {
-		warn "get_frame_ids: possible wrong IDs because of unsupported extended header\n";
-	}
+	my $pos = $self->{frame_start};
+#	if ($self->{flags}->{extheader}) {
+#		warn "get_frame_ids: possible wrong IDs because of unsupported extended header\n";
+#	}
 	my $buf;
-	while ($pos+$headersize < $self->{data_size}) {
+	while ($pos + $headersize < $self->{data_size}) {
 		$buf = substr ($self->{tag_data}, $pos, $headersize);
 		my ($ID, $size, $flags) = unpack($headerformat, $buf);
 		# tag size is handled differently for all majors
-		if ($self->{major}==2) {
+		if ($self->{major} == 2) {
 			# flags don't exist in id3v2.2
 			$flags=0;
 			my $rawsize=$size;
@@ -164,24 +177,17 @@ sub get_frame_ids {
 			foreach (unpack("C3", $rawsize)) {
 				$size = ($size << 8) + $_;
 			}
-		} elsif ($self->{major}==4) {
-			my $rawsize=$size;
-			$size=0;
-			foreach (unpack("C4", $rawsize)) {
-				$size = ($size << 7) + $_;
-			}
+		} elsif ($self->{major} == 4) {
+		    $size = un_syncsafe_4bytes $size;
 		} elsif ($self->{major}==3 and $size>255) {
 			# Size>255 means at least 2 bytes are used for size.
 			# Some programs use (incorectly) for the frame size
 			# the format of the tag size (snchsafe). Trying do detect that here
-			if ($pos+10+$size> $self->{data_size} ||
+			if ($pos + $headersize + $size > $self->{data_size} ||
 			    !exists $long_names{substr ($self->{tag_data}, $pos+$size,4)}) {
 				# wrong size or last frame
-				my $fsize=0;
-				foreach (unpack("x4C4", $buf)) {
-					$fsize = ($fsize << 7) + $_;
-				}
-				if ($pos+20+$fsize<$self->{data_size} &&
+				my $fsize = un_syncsafe_4bytes substr $buf, 4, 4;
+				if ($pos + 20 + $fsize < $self->{data_size} &&
 				    exists $long_names{substr ($self->{tag_data}, $pos+10+$fsize,4)}) {
 					warn "Probably wrong size format found in frame $ID. Trying to correct it\n";
 					#probably false size format detected, using corrected size
@@ -192,7 +198,7 @@ sub get_frame_ids {
 
 		if ($ID !~ "\000\000\000") {
 		        my $major = $self->{major};
-			if ($self->{major}==2) {
+			if ($major == 2) {
 				# most frame IDs can be converted directly to id3v2.3 IDs
 				 if (exists  $v2names_to_v3{$ID}) {
 				     # frame is direct convertable to major 3
@@ -208,7 +214,7 @@ sub get_frame_ids {
 				}
 			}
 
-			$self->{frames}->{$ID} = {flags=>check_flags($flags, $self->{major}),
+			$self->{frames}->{$ID} = {flags=>$self->check_flags($flags),
 						  major=>$major,
 						  data=>substr($self->{tag_data}, $pos+$headersize, $size)};
 			$pos += $size+$headersize;
@@ -264,7 +270,8 @@ it should be a text string and printable.
 
 If the second parameter 'raw' is given, the whole frame data is returned,
 but not the frame header.  If the second parameter is 'intact', no mangling
-of embedded C<"\0"> and trailing spaces is performed.
+of embedded C<"\0"> and trailing spaces is performed.  If the second parameter
+is 'hash', then, additionally, the result is always in the hash format.
 
 If the data was stored compressed, it is
 uncompressed before it is returned (even in raw mode). Then $info contains a string
@@ -306,6 +313,12 @@ sub get_frame {
 
     my $result = $frame->{data};
 
+#   Some frame format flags indicate that additional information fields
+#   are added to the frame. This information is added after the frame
+#   header and before the frame data in the same order as the flags that
+#   indicates them. I.e. the four bytes of decompressed size will precede
+#   the encryption method byte. These additions affects the 'frame size'
+#   field, but are not subject to encryption or compression.
     if ($frame->{flags}->{groupid}) {
 	$frame->{gid} = substring $result, 0, 1;
 	$result = substring $result, 1;
@@ -326,13 +339,17 @@ sub get_frame {
     my $format = get_format($fname);
     if (defined $format) {
       $format = [map +{%$_}, @$format], $format->[-1]{data} = 1
-	if defined $raw and $raw eq 'intact';
+	if defined $raw and ($raw eq 'intact' or $raw eq 'hash');
       $result = extract_data($result, $format);
-      if (scalar keys %$result == 1) {
-	if (exists $result->{Text}) {
-	  $result= $result->{Text};
-	} elsif (exists $result->{URL}) {
-	  $result= $result->{URL};
+      unless (defined $raw and $raw eq 'hash') {
+	my $k = scalar keys %$result;
+	$k-- if exists $result->{encoding};
+	if ($k == 1) {
+	  if (exists $result->{Text}) {
+	    $result= $result->{Text};
+	  } elsif (exists $result->{URL}) {
+	    $result= $result->{URL};
+	  }
 	}
       }
     }
@@ -449,8 +466,16 @@ sub build_tag {
 		    warn "Group ids are not supported in writing\n";
 	    }
 
+	    # unsync
+	    my $extra = 0;
+	    if ( $self->{version} == 3
+		 and ($self->get_config('id3v23_unsync_size_w'))->[0]
+		 or $self->{version} >= 4 ) {
+		$extra++ while $data =~ /\xFF(?=[\x00\xE0-\xFF])/g;
+	    }
+
 	    #prepare header
-	    my $header = substr($frameid,0,4) . pack("Nn", length ($data), build_flags(%flags));
+	    my $header = substr($frameid,0,4) . pack("Nn", $extra + length ($data), build_flags(%flags));
 
 	    $tag_data .= $header . $data;
     }
@@ -557,9 +582,13 @@ in the file is smaller than the built ID3v2 tag, the necessary
 is able to accomodate the build tag (and the C<tagsize> field of
 $id3v2 is updated correspondingly); in any case the header length of
 $tag2 is set to reflect the space in the beginning of the audio file.
-Keep in mind that the actual length of the string $tag2 is not
-modified, so if it is smaller than the reserved place in the file, one
-needs to add some 0 padding at the end.
+
+Unless $update_file has C<'padding'> as a substring, the actual length of
+the string $tag2 is not modified, so if it is smaller than the reserved
+space in the file, one needs to add some 0 padding at the end.  Note that
+if the size of reserved space can shrink (as with C<id3v2_shrink> configuration
+option), then without this option it would be hard to calculate necessary
+padding by hand.
 
 =item write_tag()
 
@@ -607,6 +636,9 @@ sub as_bin ($;$$) {
     my $tag_data = $self->build_tag($ignore_error);
     return unless defined $tag_data;
 
+    # printing this will ruin flags if they are \x80 or above.
+    die "panic: prepared raw tag contains wide characters"
+      if $tag_data =~ /[^\x00-\xFF]/;
     # perhaps search for first mp3 data frame to check if tag size is not
     # too big and will override the mp3 data
 
@@ -615,40 +647,53 @@ sub as_bin ($;$$) {
     $flags = chr(128) if $tag_data =~ s/\xFF(?=[\x00\xE0-\xFF])/\xFF\x00/g; # sync
     $tag_data .= "\0"		# Terminated by 0xFF?
 	if length $tag_data and chr(0xFF) eq substr $tag_data, -1, 1;
-    my $taglen = length $tag_data;
+    my $n_tsize = length $tag_data;
 
     my $header = 'ID3' . chr(3) . chr(0);
 
     if ($update_file) {
-	if ($self->{tagsize} < $taglen) {
-	    # if creating new tag / increasing size add at least 2k padding
-	    # add additional bytes to make new filesize multiple of 4k
+	my $o_tsize = $self->{buggy_padding_size} + $self->{tagsize};
+	my $add_padding = 0;
+	if ( $o_tsize < $n_tsize
+	     or ($self->get_config('id3v2_shrink'))->[0] ) {
+	    # if creating new tag / increasing size add at least 128b padding
+	    # add additional bytes to make new filesize multiple of 512b
 	    my $mp3obj = $self->{mp3};
 	    my $filesize = (stat($mp3obj->{filename}))[7];
-	    my $newsize = ($filesize + $taglen - $self->{tagsize} + 0x800);
-	    $newsize = (($newsize + 0xFFF) & ~0xFFF);
-	    my $padding = $newsize - $taglen - ($filesize - $self->{tagsize});
-	    my @insert = [0, $self->{tagsize}+10, ($taglen += $padding) + 10];
-	    return undef unless insert_space($self, \@insert) == 0;
-	    $self->{tagsize} = $taglen;
-	}			# Else keep tagsize
+	    my $extra = ($self->get_config('id3v2_minpadding'))->[0];
+	    my $n_filesize = ($filesize + $n_tsize - $o_tsize + $extra);
+	    my $round = ($self->get_config('id3v2_sizemult'))->[0];
+	    $n_filesize = (($n_filesize + $round - 1) & ~($round - 1));
+	    my $n_padding = $n_filesize - $filesize - ($n_tsize - $o_tsize);
+	    $n_tsize += $n_padding;
+	    if ($o_tsize != $n_tsize) {
+	      my @insert = [0, $o_tsize+10, $n_tsize + 10];
+	      return undef unless insert_space($self, \@insert) == 0;
+	    } else {	# Slot is not filled by 0; fill it manually
+	      $add_padding = $n_padding - $self->{buggy_padding_size};
+	    }
+	    $self->{tagsize} = $n_tsize;
+	} else {	# Include current "padding" into n_tsize
+	    $add_padding = $self->{tagsize} - $n_tsize;
+	    $n_tsize = $self->{tagsize} = $o_tsize;
+        }
+	$add_padding = 0 if $add_padding < 0;
+	$tag_data .= "\0" x $add_padding if $update_file =~ /padding/;
     }
 
     #convert size to header format specific size
-    my $size = unpack('B32', pack ('N', $taglen));
+    my $size = unpack('B32', pack ('N', $n_tsize));
     substr ($size, -$_, 0) = '0' for (qw/28 21 14 7/);
     $size= pack('B32', substr ($size, -32));
+    
     return "$header$flags$size$tag_data";
 }
 
 sub write_tag {
     my ($self,$ignore_error) = @_;
-    my $osize = $self->{tagsize};
-    my $tag = $self->as_bin($ignore_error, 'update_file');
+    my $tag = $self->as_bin($ignore_error, 'update_file, with_padding');
     return 0 unless defined $tag;
 
-    my $padtail = $osize - length $tag;
-    $padtail = 0 if $padtail < 0;
 
     # actually write the tag
     my $mp3obj = $self->{mp3};
@@ -660,7 +705,7 @@ sub write_tag {
     }
     $mp3obj->seek(0,0);
     $mp3obj->write($tag);
-    $mp3obj->write(chr(0) x $padtail) if $padtail;
+    $mp3obj->close;
     return 1;
 }
 
@@ -749,6 +794,12 @@ Examples:
 
 =cut 
 
+# 0 = latin1 (effectively: unknown)
+# 1 = UTF-16 with BOM
+# 2 = UTF-16be, no BOM
+# 3 = UTF-8
+my @enc_types = qw( iso-8859-1 UTF-16 UTF-16BE utf8 );
+
 sub add_frame {
     my ($self, $fname, @data) = @_;
     $self->get_frame_ids() unless exists $self->{frameIDs};
@@ -762,18 +813,28 @@ sub add_frame {
 	@data = map {""} @$format;
     }
 
-    # encoding is not used yet
     my $encoding=0;
     my $defenc=0;
     $defenc = 1 if (($#data == ($args - 1)) && ($format->[0]->{name} eq "_encoding"));
     return 0 unless $#data == $args || defined $defenc;
 
-    my $datastring="";
+    my ($datastring, $have_high) = "";
+    if ($defenc) {
+        my @d = @data;
+        foreach my $fs (@$format) {
+            $have_high = 1 if $fs->{encoded} and $d[0] and $d[0] =~ /[^\x00-\xff]/;
+            shift @d unless $fs->{name} eq "_encoding";
+        }
+    }
     foreach my $fs (@$format) {
 	if ($fs->{name} eq "_encoding") {
-	    $encoding = shift @data unless $defenc;
-	    warn "Encoding of text not supported yet\n" if $encoding;
-	    $encoding = 0; # other values are not used yet, so let's not write them in a tag
+	    if ($defenc) {
+		$encoding = ($have_high ? 1 : 0);	# v2.3 only has 0, 1
+	    } else {
+		$encoding = shift @data;
+	    }
+	    #warn "Encoding of text not supported yet\n" if $encoding;
+	    #$encoding = 0; # other values are not used yet, so let's not write them in a tag
 	    $datastring .= chr($encoding);
 	    next;
 	}
@@ -800,6 +861,24 @@ sub add_frame {
 	}elsif (exists $fs->{mlen} and $fs->{mlen}>0) {
 	    $d .= " " x ($fs->{mlen}-length($d)) if length($d) < $fs->{mlen};
 	}
+	if ($fs->{encoded}) {
+	  if ($encoding) {
+	    # 0 = latin1 (effectively: unknown)
+	    # 1 = UTF-16 with BOM
+	    # 2 = UTF-16be, no BOM
+	    # 3 = UTF-8
+	    require Encode;
+	    if ($defenc or $encode_utf8) {
+	      $d = Encode::encode($enc_types[$encoding], $d);
+	    } elsif ($encoding < 3) {
+	      # Reencode from UTF-8
+	      $d = Encode::decode('UTF-8', $d);
+	      $d = Encode::encode($enc_types[$encoding], $d);
+	    }
+	  } elsif (0) {	# $encoding == 0...
+		# Guessing not done yet
+	  }
+	}
 	$datastring .= $d;
     }
 
@@ -813,8 +892,9 @@ sub add_frame {
 	++$self->{extra_frames}->{$ID}
 	  if $c > ($self->{extra_frames}->{$ID} || 0);
     }
-    $self->{frames}->{$fname} = {flags=>check_flags(0), major=>3,
-				 data=>$datastring };
+    $self->{frames}->{$fname} = {flags => $self->check_flags(0),
+				 major => $self->{frame_major},
+				 data => $datastring };
     $self->{modified}++;
     return $fname;
 }
@@ -826,7 +906,8 @@ sub add_frame {
   $id3v2->change_frame($fname, @data);
 
 Change an existing frame, which is identified by its
-short name $fname. @data must be same as in add_frame;
+short name $fname eg as returned by get_frame_ids().
+@data must be same as in add_frame().
 
 If the frame $fname does not exist, undef is returned.
 
@@ -852,7 +933,7 @@ sub change_frame {
   $id3v2->remove_frame($fname);
 
 Remove an existing frame. $fname is the short name of a frame,
-eg as returned by C<get_frame_ids>.
+eg as returned by get_frame_ids().
 
 You have to call write_tag() to save the changes to the file.
 
@@ -1085,14 +1166,18 @@ Description fields (if the corresponding arguments were defined).
 The lists $descrs and $languages of one element can be flattened to
 become this element (as with C<''> above).  If the lists are not
 defined, no restriction is applied.  Language of C<''> means no
-restriction on language.
+restriction on language.  Language of the form C<'#NUMBER'> selects the
+NUMBER's frame with frame name $fname.
 
-If optional argument $newtext is given, the found frames are removed; if
-$newtext is defined, a new frame is created (the first elements of
-$descrs and $languages are used as the short description and the language,
-default to C<''> and C<XXX>).
+If optional argument $newtext is given, all the found frames are
+removed; if $newtext is defined, a new frame is created (the first
+elements of $descrs and $languages are used as the short description
+and the language, default to C<''> and C<XXX>); otherwise the count of
+removed frames is returned.
 
 =cut
+
+sub __to_lang($) {my $l = shift; return $l if $l eq 'XXX'; lc $l}
 
 sub _frame_select {
     # "Quadratic" in number of comment frames and select-short/lang specifiers
@@ -1102,7 +1187,7 @@ sub _frame_select {
     $shorts = [$shorts] if defined $shorts and not ref $shorts;
     if (defined $languages) {
 	$languages = [$languages] unless ref $languages;
-	@$languages = map lc, @$languages;
+	@$languages = map __to_lang($_), @$languages;
     }
     my @info = get_frames($self, $fname);
     shift @info;
@@ -1122,7 +1207,7 @@ sub _frame_select {
 		    $c++;
 		    push(@by_lang, [$c, $f])	# May create duplicates
 			if defined $f and (defined $f->{Language}
-					   and $l eq lc $f->{Language} 
+					   and $l eq __to_lang $f->{Language} 
 					   or $l eq '');
 		}
 	    }
@@ -1139,24 +1224,25 @@ sub _frame_select {
 	    if defined $frame and defined $frame->{Description}
 		 and grep $_ eq $frame->{Description}, @$shorts;
     }
-    return scalar @select unless $content;
+    return @select unless $content;
     if (@_ < 3) {			# Read-only access
 	return unless @select;
 	my $res = $select[0][1]; # Only defined frames here...
 	my $c = keys %$res;
 	$c-- if exists $res->{Description} and defined $shorts;
 	$c-- if exists $res->{Language} and defined $languages;
+	$c-- if exists $res->{encoding};
 	return $select[0][1]->{Text} if $c <= 1 and exists $select[0][1]->{Text};
 	return $select[0][1]->{URL} if $c <= 1 and exists $select[0][1]->{URL};
 	return $select[0][1]->{_Data} if $c <= 1 and exists $select[0][1]->{_Data};
 	return $res;
     }
     # Write
-    for my $f (@select) {
+    for my $f (reverse @select) { # Removal may break the numeration???
 	($c, my $frame) = @$f;
-	$self->remove_frame($c ? sprintf '%s%02d', $fname, $c : $fname);
+	$self->remove_frame($c ? sprintf('%s%02d', $fname, $c) : $fname);
     }
-    return unless defined $newcontent;
+    return scalar @select unless defined $newcontent;
     $languages = ['XXX'] unless defined $languages;
     my $format = get_format($fname);
     my $have_lang = grep $_->{name} eq 'Language', @$format;
@@ -1172,6 +1258,10 @@ sub frame_select {
     $self->_frame_select(1, @_);
 }
 
+=item frame_list()
+
+Same as frame_select(), but returns the list of found frames.
+
 =item frame_have()
 
 Same as frame_select(), but returns the count of found frames.
@@ -1179,6 +1269,11 @@ Same as frame_select(), but returns the count of found frames.
 =cut
 
 sub frame_have {
+    my $self = shift;
+    scalar $self->_frame_select(0, @_);
+}
+
+sub frames_list {
     my $self = shift;
     $self->_frame_select(0, @_);
 }
@@ -1402,15 +1497,23 @@ sub new {
     $self->{frame_start}=0;
     # default ID3v2 version
     $self->{major}=3;
+    $self->{frame_major}=3;	# major for new frames
     $self->{revision}=0;
     $self->{version}= "$self->{major}.$self->{revision}";
 
     if ($self->read_header($header)) {
-	if (defined $create && $create) {
+	if ($create) {
 	    $self->{tag_data} = '';
 	    $self->{data_size} = 0;
 	} else {
-	    $mp3obj->read(\$self->{tag_data}, $self->{tagsize});
+	    # sanity check:
+	    my $s = $mp3obj->size;
+	    my $s1 = $self->{tagsize} + $self->{footer_size};
+	    if (defined $s and $s - 10 < $s1) {
+	      warn "Ridiculously large tag size: $s1; file size $s";
+	      return;
+	    }
+	    $mp3obj->read(\$self->{tag_data}, $s1);
 	    $self->{data_size} = $self->{tagsize};
 	    # un-unsynchronize comes in all versions first
 	    if ($self->{flags}->{unsync}) {
@@ -1421,18 +1524,26 @@ sub new {
 	    # described in tag specification, so get out if compression is found
 	    if ($self->{flags}->{compress_all}) {
 		    # can we test if it is simple zlib compression and use this?
-		    warn "ID3v".$self->{version}." compression isn't supported. Cannot read tag\n";
+		    warn "ID3v".$self->{version}." [whole tag] compression isn't supported. Cannot read tag\n";
 		    return undef;
 	    }
 	    # read the ext header if it exists
 	    if ($self->{flags}->{extheader}) {
-		unless ($self->read_ext_header(substr ($self->{tag_data}, 0, 14))) {
+		$self->{extheader} = substr ($self->{tag_data}, 0, 14);
+		unless ($self->read_ext_header()) {
 		    return undef; # ext header not supported
 		}
 	    }
-	    if ($self->{flags}->{footer}) {
-		    $self->{frame_start} += 10; # footers size is 10 bytes
-		    warn "ID3v".$self->{version}." footer isn't supported. Ignoring it\n";
+	    $self->{footer} = substr $self->{tag_data}, -$self->{footer_size}
+		if $self->{footer_size};
+	    # Treat (illegal) padding after the tag
+	    if (($mp3obj->get_config('id3v2_mergepadding'))->[0]) {
+		my $d;
+		while ($mp3obj->read(\$d, 1024)) {
+		  my ($z) = ($d =~ /^(\0*)/);
+		  $self->{buggy_padding_size} += length $z;
+		  last unless length($z) == length($d);
+		}
 	    }
 	}
 	$mp3obj->close;
@@ -1443,6 +1554,7 @@ sub new {
 	    $self->{tag_data}='';
 	    $self->{tagsize} = -10;
 	    $self->{data_size} = 0;
+	    $self->{buggy_padding_size} = 0;
 	    return $self;
 	}
     }
@@ -1473,29 +1585,28 @@ sub read_header {
 	if (substr ($header,0,3) eq "ID3") {
 		# flag meaning for all supported ID3v2.x versions
 		my @flag_meaning=([],[], # v2.0 and v2.1 aren't supported yet
+				# 2.2
 			       ["unknown","unknown","unknown","unknown","unknown","unknown","compress_all","unsync"],
+				# 2.3
 			       ["unknown","unknown","unknown","unknown","unknown","experimental","extheader","unsync"],
+				# 2.4
 			       ["unknown","unknown","unknown","unknown","footer","experimental","extheader","unsync"],
-			       ["unknown","unknown","unknown","unknown","footer","experimental","extheader","unsync"],
+				# ????
+			       #["unknown","unknown","unknown","unknown","footer","experimental","extheader","unsync"],
 			      );
 
 		# extract the header data
 		my ($major, $revision, $pflags) = unpack ("x3CCC", $header);
 		# check the version
 		if ($major >= $#supported_majors or $supported_majors[$major] == 0) {
-			warn "Unknown ID3v2-Tag version: V$major.$revision\n";
+			warn "Unknown ID3v2-Tag version: v2.$major.$revision\n";
 			print "| $major > ".($#supported_majors)." || $supported_majors[$major] == 0\n";
 			print "| ",join(",",@supported_majors),"n";
 			print "$_: $supported_majors[$_]\n" for (0..5);
 			return 0;
 		}
 		if ($revision != 0) {
-			warn "Unknown ID3v2-Tag revision: V$major.$revision\nTrying to read tag\n";
-		}
-		# get the tag size
-		my $size=0;
-		foreach (unpack("x6C4", $header)) {
-			$size = ($size << 7) + $_;
+			warn "Unknown ID3v2-Tag revision: v2.$major.$revision\nTrying to read tag\n";
 		}
 		# check the flags
 		my $flags={};
@@ -1505,11 +1616,16 @@ sub read_header {
  			$flags->{$flag_meaning[$major][$i]}=1 if $_;
 			$i++;
 		}
-		$self->{version} = "$major.$revision";
-		$self->{major}=$major;
-		$self->{revision}=$revision;
-		$self->{tagsize} = $size;
+		$self->{version}  = "$major.$revision";
+		$self->{major}    = $major;
+		$self->{revision} = $revision;
+		# 2.3: includes extHeader, frames (as written), and the padding
+		#	excludes the header size (10)
+		# 2.4: also excludes the footer (10 if present)
+		$self->{tagsize} = un_syncsafe_4bytes substr $header, 6, 4;
+		$self->{buggy_padding_size} = 0;	# Fake so far
 		$self->{flags} = $flags;
+		$self->{footer_size} = ($self->{flags}->{footer} ? 10 : 0);
 		return 1;
 	}
 	return 0; # no ID3v2-Tag found
@@ -1518,11 +1634,41 @@ sub read_header {
 # Reads the extended header and adapts the internal counter for the start of the
 # frame data. Ignores the rest of the ext. header (as CRC data).
 
-sub read_ext_header {
-    my ($self, $ext_header) = @_;
+# v2.3:
+#  Total size - 4 (4bytes, 6 or 10), flags (2bytes), padding size (4bytes),
+#    OptionalCRC.
+#  Flags: (subject to unsyncronization)
+#    %x0000000 00000000
+#    x - CRC data present
+
+#If  this flag is set four bytes of CRC-32 data is appended to the extended header. The CRC
+#should  be calculated before unsynchronisation on the data between the extended header and
+#the padding, i.e. the frames and only the frames.
+#                              Total frame CRC   $xx xx xx xx
+
+# v2.4: Total size (4bytes, unsync), length of flags (=1), flags, Optional part.
+# 2.4 flags (with the corresponding "Optional part" format):
+#      %0bcd0000
+#    b - Tag is an update
+#         Flag data length       $00
+#    c - CRC data present
+#         Flag data length       $05
+#         Total frame CRC    5 * %0xxxxxxx
+#    d - Tag restrictions
+#         Flag data length       $01
+#         Restrictions           %ppqrrstt
+
+sub read_ext_header {	# XXXX in 2.3, it should be unsyncronized
+    my $self = shift;
+    my $ext_header = $self->{extheader};
     # flags, padding and crc ignored at this time
-    my $size = unpack("N", $ext_header);
-    $self->{frame_start} += $size+4; # 4 bytes extra for the size
+    my $size;
+    if ($self->{major}==4) {
+	$size = un_syncsafe_4bytes substr $ext_header, 0, 4;
+    } else { # 4 bytes extra for the size field itself
+	$size = 4 + unpack("N", $ext_header);
+    }
+    $self->{frame_start} += $size;
     return 1;
 }
 
@@ -1561,6 +1707,7 @@ sub extract_data {
 		# work with data
 		if ($rule->{name} eq "_encoding") {
 			$encoding=unpack ("C", $found);
+			$result->{encoding} = $encoding;
 		} else {
 			if (exists $rule->{encoded}) {
 			  if ( $encoding > 3 ) {
@@ -1571,23 +1718,31 @@ sub extract_data {
 			    warn "UTF encoding types disabled via MP3TAG_DECODE_UNICODE): found in $rule->{name}\n";
 			    next;
 			  } elsif ($encoding) {
+			    # 0 = latin1 (effectively: unknown)
+			    # 1 = UTF-16 with BOM
+			    # 2 = UTF-16be, no BOM
+			    # 3 = UTF-8
 			    require Encode;
 			    if ($decode_utf8) {
-			      $found = Encode::decode(($encoding > 2 
-						 ? 'UTF-8' :'UTF-16'), $found);
+			      $found = Encode::decode($enc_types[$encoding],
+						      $found);
 			    } elsif ($encoding < 3) {
 			      # Reencode in UTF-8
-			      $found = Encode::decode(($encoding > 2 
-						 ? 'UTF-8' :'UTF-16'), $found);
+			      $found = Encode::decode($enc_types[$encoding],
+						      $found);
 			      $found = Encode::encode('UTF-8', $found);
 			    }
+			  } elsif (defined $default_encoding_read) {
+			    require Encode;
+			    $found = Encode::decode( $default_encoding_read,
+						     $found );
 			  }
 			}
-			
+
 			$found = toNumber($found) if ( $rule->{isnum} );
 
 			$found = $rule->{func}->($found) if (exists $rule->{func});
-			
+
 			unless (exists $rule->{data} || !defined $found) {
 				$found =~ s/[\x00]+$//;   # some progs pad text fields with \x00
 				$found =~ s![\x00]! / !g; # some progs use \x00 inside a text string to seperate text strings
@@ -1627,8 +1782,35 @@ sub get_format {
 #0/1 as value for unset/set.
 sub check_flags {
     # how to detect unknown flags?
-    my ($flags)=@_;
-    my @flagmap=qw/0 0 0 0 0 groupid encryption compression 0 0 0 0 0 read_only file_preserv tag_preserv/;
+    my ($self, $flags)=@_;
+    # %0abc0000 %0h00kmnp (this is byte1 byte2)
+    my @flagmap4 = qw/data_length unsync encryption compression unknown_j unknown_i groupid 0
+		      unknown_g unknown_f unknown_e unknown_d read_only file_preserv tag_preserv 0/;
+    # %abc00000 %ijk00000
+    my @flagmap3 = qw/unknown_o unknown_n unknown_l unknown_m unknown_l groupid encryption compression
+		      unknown_h unknown_g unknown_f unknown_e unknown_d read_only file_preserv tag_preserv/;
+    # flags were unpacked with 'n', so pack('v') gives byte2 byte1
+    # unpack('b16') puts more significant bits to the right, separately for 
+    # each byte; so the order is as specified above
+# 2.4:
+#     %0abc0000 %0h00kmnp (this is byte1 byte2)
+#    a - Tag alter preservation
+#    b - File alter preservation
+#    c - Read only
+#    h - Grouping identity
+#    k - Compression
+#    m - Encryption
+#    n - Unsynchronisation
+#    p - Data length indicator
+# 2.3:
+#     %abc00000 %ijk00000
+#    a - Tag alter preservation
+#    b - File alter preservation
+#    c - Read only
+#    i - Compression
+#    j - Encryption
+#    k - Grouping identity
+    my @flagmap = $self->{major} == 4 ? @flagmap4 : @flagmap3;
     my %flags = map { (shift @flagmap) => $_ } split (//, unpack('b16',pack('v',$flags)));
     $flags{unchanged}=1;
     return \%flags;
@@ -1966,7 +2148,7 @@ BEGIN {
 		   MCDI => [$data],
 		   #MLLT  => [],
 		   OWNE => [$encoding, {len=>0, name=>"Price payed"},
-			    {len=>0, name=>"Date of purchase"}, $text],
+			    {len=>0, name=>"Date of purchase"}, $text_enc],
 		   PCNT => [{mlen=>4, name=>"Text", isnum=>1}],
 		   PIC  => [{v3name => "APIC"}, $encoding, {len=>3, name=>"Image Format", func=>\&PIC},
 			    {len=>1, name=>"Picture Type", func=>\&APIC}, $description, $data], #v2.2
@@ -1997,10 +2179,10 @@ BEGIN {
 		   TIPL => [{v3name => "IPLS"}, $encoding, $text_enc],
 		   TMCL => [{v3name => "IPLS"}, $encoding, $text_enc],
 		   TMED => [$encoding, {%$text_enc, func=>\&TMED}],
-		   TXXX => [$encoding, $description, $text],
+		   TXXX => [$encoding, $description, $text_enc],
 		   UFID => [{%$description, name=>"Text"}, $data],
-		   USER => [$encoding, $language, $text],
-		   USLT => [$encoding, $language, $description, $text],
+		   USER => [$encoding, $language, $text_enc],
+		   USLT => [$encoding, $language, $description, $text_enc],
 		   W    => [$url],
 		   WXXX => [$encoding, $description, $url],
 	      );

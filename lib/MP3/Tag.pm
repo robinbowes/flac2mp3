@@ -49,10 +49,17 @@ use vars qw/$VERSION %config/;
 	    year_is_timestamp	=> [1],
 	    comment_remove_date	=> [0],
 	    id3v2_frame_empty_ok	=> [0],
+	    id3v2_minpadding	=> [128],
+	    id3v2_sizemult	=> [512],
+	    id3v2_shrink	=> [0],
+	    id3v2_mergepadding  => [0],
+	    id3v23_unsync_size_r => [0],
+	    id3v23_unsync_size_w => [0],
 	    parse_minmatch => [0],
+	    update_length => [1],
 	  );
 
-$VERSION="0.97";
+$VERSION="0.9705";
 
 =pod
 
@@ -567,6 +574,31 @@ Current default: FALSE.
 When setting the individual id3v2 frames via ParseData, do not
 remove the frames set to an empty string.  Default 0 (empty means 'remove').
 
+=item id3v2_minpadding
+
+Minimal padding to reserve after ID3v2 tag when writing (default 128),
+
+=item id3v2_sizemult
+
+Additionally to C<id3v2_minpadding>, insert padding to make file size multiple
+of this when writing ID3v2 tag (default 512),  Should be power of 2.
+
+=item id3v2_shrink
+
+If TRUE, when writing ID3v2 tag, shrink the file if needed (default FALSE).
+
+=item id3v2_mergepadding
+
+If TRUE, when writing ID3v2 tag, consider the 0-bytes following the
+ID3v2 header as writable space for the tag (default FALSE).
+
+=item update_length
+
+If TRUE, when writing ID3v2 tag, create a C<TLEN> tag if the duration
+is known (as it is after calling methods like C<total_secs>, or
+interpolation the duration value).  If this field is 2 or more, force
+creation of ID3v2 tag by C<update_tags> if the duration is known.
+
 =item  translate_*
 
 A subroutine used to munch a field C<*> (out of C<title track artist album comment year genre>)
@@ -590,6 +622,15 @@ for the settings 0 and 1; note that greediness of C<%l> does not matter,
 thus the value of 1 is equivalent for the value of C<t> for this particular
 pattern.
 
+=item id3v23_unsync_size_w
+
+Version 2.3 if the standard is not clear about frame size field, whether it
+is the size of the frame after unsyncronization, or not.  Old versions
+were assuming that this size is one before unsyncronization (as in v2.2).
+Setting these values will assume another interpretation (as in v2.4) for
+write; experimental - to test why ITunes refuse to
+handle unsyncronized tags.
+
 =item *
 
 Later there will be probably more things to configure.
@@ -609,7 +650,9 @@ sub config {
 		   parse_join parse_filename_ignore_case
 		   parse_filename_merge_dots year_is_timestamp
 		   comment_remove_date extension id3v2_missing_fatal
-		   parse_minmatch);
+		   id3v2_frame_empty_ok id3v2_minpadding id3v2_sizemult
+		   id3v2_shrink id3v2_mergepadding
+		   parse_minmatch id3v23_unsync_size_w);
     my @tr = map "translate_$_", qw( title track artist album comment year genre );
     $conf_rex = '^(' . join('|', @known, @tr) . ')$' unless $conf_rex;
 
@@ -838,6 +881,7 @@ The one-letter ESCAPEs are replaced by
 		q	frequency_kHz
 		Q	frequency_Hz
 		S	total_secs_int
+		M	total_millisecs_int
 		m	total_mins
 		s	leftover_secs
 		C	is_copyrighted_YN
@@ -882,9 +926,26 @@ String starting with C<!FNAME:> are treated similarly with inverted test.
 
 =item *
 
+If string starts with C<FNAME||>: if frame FNAME exists, the part
+after C<||> is ignored; otherwise the part before C<||> is ignored,
+and the rest is reinterpreted (after stripping backslashes from
+backslashes and curlies).
+
+=item *
+
+If string starts with C<FNAME|>: if frame FNAME exists, the part
+after C<|> is ignored; otherwise the part before C<|> is ignored,
+and the rest is reinterpreted as if it started with C<%{>.
+
+=item *
+
 String starting with I<LETTER>C<:> or C<!>I<LETTER>C<:> are treated similarly
 to ID3v2 conditionals, but the condition is that the corresponding escape
 expands to non-empty string.
+
+=item *
+
+Likewise for string starting with I<LETTER>C<|> or I<LETTER>C<||>.
 
 =item *
 
@@ -938,6 +999,10 @@ other language (in this order).  (I do not know which one of
 terminology/bibliography codes for Frech is used, so for safety
 include both.)
 
+  Composer: %{TCOM|a}
+
+will use the ID3v2 field C<TCOM> if present, otherwise uses C<%a>.
+
 =cut
 
 my %trans = qw(	t	title
@@ -969,6 +1034,7 @@ my %trans = qw(	t	title
 		Q	frequency_Hz
 		?	size_bytes
 		S	total_secs_int
+		M	total_millisecs_int
 		m	total_mins
 		s	leftover_secs
 		?	leftover_msec
@@ -989,6 +1055,7 @@ my %trans = qw(	t	title
 #	%e      Emphasis (string)
 #	%E      CRC Error protection (string)
 #	%O      Original material flag (string)
+#	%G      Musical genre (integer)
 
 sub interpolate {
     my ($self, $pattern) = @_;
@@ -1009,49 +1076,82 @@ sub interpolate {
 	    }
 	} elsif ($what eq '{' and $pattern =~ s/^U(\d+)}//) {	# User data
 	    $str = $self->get_user($1);
-	} elsif ($what eq '{' and $pattern =~ s/^(aC|tT|c[TC])}//) {
+	} elsif ($what eq '{' and $pattern =~ s/^(aC|tT|c[TC])}//) { # CDDB
 	    my $meth = $trans{$1};
 	    $str = $self->$meth();
-	} elsif ($what eq '{' and $pattern =~ s/^(!)?([talygcnfFeEABD]):((?:[^\\{}]|\\[\\{}])*)}//) {
-	    my $neg = $1;
-	    my $have = length($self->interpolate("%$2"));
-	    next unless $1 ? !$have : $have;
-	    ($str = $3) =~ s/\\([\\{}])/$1/g;
-	    $str = $self->interpolate($str);
+	} elsif ($what eq '{' and $pattern =~ s/^(!)?([talygcnfFeEABD])(:|\|\|?)((?:[^\\{}]|\\[\\{}])*)}//) {
+	    # Alternation with simple stuff
+	    my ($neg, $alt) = ($1, ($3 ne ':') && $3);
+	    die "Negation and alternation incompatible in interpolation"
+	      if $alt and $neg;
+	    $str = $self->interpolate("%$2");
+	    my $have = length($str);
+	    next if not $alt and $1 ? $have : !$have;
+	    unless ($have and $alt) {
+	      $str = $4;
+	      if ($alt and $alt ne '||') {
+		$str = $self->interpolate(length $str > 1 ? "%{$str}" : "%$str")
+	      } else {
+		$str =~ s/\\([\\{}])/$1/g;
+		$str = $self->interpolate($str);
+	      }
+	    }
 	} elsif ($what eq '{' and $pattern =~ s/^ID3v1}//) {
-	    return '' unless $self->{ID3v1};
-	    $str = $self->{ID3v1}->as_bin;
+	    $str = $self->{ID3v1}->as_bin if $self->{ID3v1};
 	} elsif ($what eq '{') {	# id3v2 stuff
 	    $pattern =~ s/^((?:[^\\{}]|\\[\\{}])*)}// or die "Mismatched {} in pattern `$pattern'";
 	    $what = $1;
 	    unless ($self->{ID3v2} or $what =~ /^!/) {
 		die "No ID3v2 present" if $self->get_config('id3v2_missing_fatal');
-		return '';
+		next;
 	    }
-	    if ($what eq 'ID3v2') {
-		return '' unless $self->{ID3v2};
-		$str = $self->{ID3v2}->as_bin;
-	    } elsif ($what =~ /^\w{4}(?:\d{2,})?$/) {
+	    if ($what eq 'ID3v2') { # Whole tag
+		$str = $self->{ID3v2}->as_bin if $self->{ID3v2};
+	    } elsif ($what =~ /^\w{4}(?:\d{2,})?$/) { # Simple frame
 		(undef, $str) = $self->get_id3v2_frames($what);
 		$str = $str->{_Data} if $str and ref $str and exists $str->{_Data};
 	    } elsif ($what =~ /^(\w{4})(?:\(([^)]*)\))?(?:\[([^]]*)\])?$/) {
+	        # frame with optional (language)/[descriptor]
 		my $langs = defined $2 ? [split /,/, $2, -1] : '';
 		my ($fname, $shorts) = ($1, $3);
 		$str = $self->select_id3v2_frame($fname, $shorts, $langs);
-	    } elsif ($what =~ /^(!)?(\w{4}(?:\d{2,})?):(.*)/s) {
+	    } elsif ($what =~ /^(!)?(\w{4}(?:\d{2,})?)(:|\|\|?)(.*)/s) {
+	        # alternation with simple frame
+	        my ($neg, $alt) = ($1, ($3 ne ':') && $3);
+		die "Negation and alternation incompatible in interpolation"
+		    if $alt and $neg;
 		$ids = $self->get_id3v2_frame_ids || ''
 		    unless defined $ids; # Cache the value
 		my $have = $ids && exists $ids->{$2};
-		next unless $1 ? !$have : $have;
-		($str = $3) =~ s/\\([\\{}])/$1/g;
-		$str = $self->interpolate($str);
-	    } elsif ($what =~ /^(!)?(\w{4})(?:\(([^)]*)\))?(?:\[([^]]*)\])?:(.*)$/s) {
+		next if not $alt and $neg ? $have : !$have;
+		$str = $4;
+		if ($alt and $have) {
+		  (undef, $str) = $self->get_id3v2_frames("$2");
+		  $str = $str->{_Data} if $str and ref $str and exists $str->{_Data};
+		} elsif ($alt and $alt ne '||') {
+		  $str = $self->interpolate(length $str > 1 ? "%{$str}" : "%$str")
+		} else {
+		  $str =~ s/\\([\\{}])/$1/g;
+		  $str = $self->interpolate($str);
+		}
+	    } elsif ($what =~ /^(!)?(\w{4})(?:\(([^)]*)\))?(?:\[([^]]*)\])?(:|\|\|?)(.*)$/s) {
+	        # alternation with frame with optional (language)/[descriptor]
+	        my ($neg, $alt) = ($1, ($5 ne ':') && $5);
+		die "Negation and alternation incompatible in interpolation"
+		    if $alt and $neg;
 		my $langs = defined $3 ? [split /,/, $3, -1] : undef;
 		my ($fname, $shorts) = ($2, $4);
 		my $have = $self->have_id3v2_frame($fname, $shorts, $langs);
-		next unless $1 ? !$have : $have;
-		($str = $5) =~ s/\\([\\{}])/$1/g;
-		$str = $self->interpolate($str);
+		next if not $alt and $1 ? $have : !$have;
+		$str = $6;
+		if ($alt and $have) {
+		  $str = $self->select_id3v2_frame($fname, $shorts, $langs);
+		} elsif ($alt and $alt ne '||') {
+		  $str = $self->interpolate(length $str > 1 ? "%{$str}" : "%$str")
+		} else {
+		  $str =~ s/\\([\\{}])/$1/g;
+		  $str = $self->interpolate($str);
+		}
 	    } else {
 		die "unknown escape `$what'";
 	    }
@@ -1394,6 +1494,8 @@ sub filename_extension_nodot {
 
 =item total_secs_int()
 
+=item total_millisecs_int()
+
 =item total_mins()
 
 =item leftover_secs()
@@ -1418,12 +1520,14 @@ sub filename_extension_nodot {
 
 =item vbr_scale()
 
-These methods return the information about the contents of the MP3 file.
-Useing these methods requires that the module L<MP3::Info|MP3::Info>
-is installed.  Since these calls are redirectoed to the module
-L<MP3::Info|MP3::Info>, the returned info is subject to the same restrictions
-as the method get_mp3info() of this module; in particular, the information
-about the frame number and frame length is only approximate
+These methods return the information about the contents of the MP3
+file.  If this information is not cached in ID3v2 tags (not
+implemented yet), using these methods requires that the module
+L<MP3::Info|MP3::Info> is installed.  Since these calls are
+redirectoed to the module L<MP3::Info|MP3::Info>, the returned info is
+subject to the same restrictions as the method get_mp3info() of this
+module; in particular, the information about the frame number and
+frame length is only approximate
 
 vbr_scale() is from the VBR header; total_secs() is not necessarily an integer,
 but total_secs_int() is;
@@ -1441,18 +1545,20 @@ my %mp3info = qw(
   bitrate_kbps		BITRATE
   frequency_kHz		FREQUENCY
   size_bytes		SIZE
-  total_secs		SECS
-  total_mins		MM
-  leftover_secs		SS
-  leftover_msec		MS
-  time_mm_ss		TIME
   is_copyrighted	COPYRIGHT
   frames_padded		PADDING
   channel_mode_int	MODE
   frames		FRAMES
   frame_len		FRAME_LENGTH
   vbr_scale		VBR_SCALE
+  total_secs_fetch	SECS
 );
+
+# Obsoleted:
+#  total_mins		MM
+#  time_mm_ss		TIME
+#  leftover_secs		SS
+#  leftover_msec		MS
 
 for my $elt (keys %mp3info) {
   no strict 'refs';
@@ -1473,20 +1579,45 @@ sub frequency_Hz ($) {
 }
 
 sub mpeg_layer_roman	{ 'I' x (shift->mpeg_layer) }
-sub total_secs_int	{ int (shift->total_secs) }
+sub total_millisecs_int_fetch	{ int (0.5 + 1000 * shift->total_secs_fetch) }
 sub frames_padded_YN	{ shift->frames_padded() ? 'Yes' : 'No' }
 sub is_copyrighted_YN	{ shift->is_copyrighted() ? 'Yes' : 'No' }
+
+sub total_millisecs_int {
+  my $self = shift;
+  my $ms = $self->{ms};
+  return $ms if defined $ms;
+  (undef, $ms) = $self->get_id3v2_frames('TLEN');
+  $ms = $self->total_millisecs_int_fetch() unless defined $ms;
+  $self->{ms} = $ms;
+  return $ms;
+}
+sub total_secs_int	{ int (0.5 + 0.001 * shift->total_millisecs_int) }
+sub total_secs		{ 0.001 * shift->total_millisecs_int }
+sub total_secs_trunc	{ int (0.001 * shift->total_millisecs_int) }
+sub total_mins		{ int (0.001/60 * shift->total_millisecs_int) }
+sub leftover_secs	{ shift->total_secs_int() % 60 }
+sub leftover_msec	{ shift->total_millisecs_int % 1000 }
+sub time_mm_ss {		# Borrowed from MP3::Info
+  my $self = shift;
+  sprintf "%.2d:%.2d", $self->total_mins, $self->leftover_secs;
+}
 
 my @channel_modes = ('stereo', 'joint stereo', 'dual channel', 'mono');
 sub channel_mode	{ $channel_modes[shift->channel_mode_int] }
 
-=item update_tags( [ $data ] )
+=item update_tags( [ $data,  [ $force2 ]] )
 
   $mp3 = MP3::Tag->new($filename);
   $mp3->update_tags();			# Fetches the info, and updates tags
 
-This method updates ID3v1 and ID3v2 tags (the latter only if needed) with
-the the information about title, artist, album, year, comment, track,
+  $mp3->update_tags({});		# Updates tags if needed/changed
+
+  $mp3->update_tags({title => 'This is not a song'});	# Updates tags
+
+This method updates ID3v1 and ID3v2 tags (the latter only if in-memory copy
+contains any data, or $data does not fit ID3v1 restrictions, or $force2 argument is given)
+with the the information about title, artist, album, year, comment, track,
 genre from the hash reference $data.  The format of $data is the same as
 one returned from autoinfo() (with or without the optional argument 'from').
 The fields which are marked as coming from ID3v1 or ID3v2 tags are not updated
@@ -1496,10 +1627,14 @@ If $data is not defined or missing, C<autoinfo('from')> is called to obtain
 the data.  Returns the object reference itself to simplify chaining of method
 calls.
 
+This is probably the simplest way to set data in the tags: populate
+$data and call this method - no further tinkering with subtags is
+needed.
+
 =cut
 
 sub update_tags {
-    my ($mp3, $data) = (shift, shift);
+    my ($mp3, $data, $force) = (shift, shift, shift);
 
     $mp3->get_tags;
     $data = $mp3->autoinfo('from') unless defined $data;
@@ -1514,7 +1649,12 @@ sub update_tags {
     }				# Skip what is already there...
     $mp3->{ID3v1}->write_tag;
 
-    return $mp3 if $mp3->{ID3v1}->fits_tag($data) and not exists $mp3->{ID3v2};
+    my $do_length
+      = (defined $mp3->{ms}) ? ($mp3->get_config('update_length'))->[0] : 0;
+
+    return $mp3
+      if not $force and $mp3->{ID3v1}->fits_tag($data)
+	and not exists $mp3->{ID3v2} and $do_length < 2;
 
     $mp3->new_tag("ID3v2") unless exists $mp3->{ID3v2};
     for $elt (qw/title artist album year comment track genre/) {
@@ -1524,6 +1664,9 @@ sub update_tags {
         $mp3->{ID3v2}->$elt( $d->[0] ) if $d->[1] ne 'ID3v2';
     }				# Skip what is already there...
     # $mp3->{ID3v2}->comment($data->{comment}->[0]);
+
+    $mp3->set_id3v2_frame('TLEN', $mp3->{ms})
+      if $do_length and not $mp3->have_id3v2_frame('TLEN');
     $mp3->{ID3v2}->write_tag;
     return $mp3;
 }
@@ -1583,10 +1726,55 @@ Some more examples:
       );
     }' list_of_audio_files
 
+=head1 Problems with ID3 format
+
+The largest problem with ID3 format is that the first versions of these
+format were absolutely broken (underspecified).  It I<looks> like the newer
+versions of this format resolved most of these problems; however, in reality
+they did not (due to unspecified backward compatibility, and
+grandfathering considerations).
+
+What are the problems with C<ID3v1>?  First, one of the fields was C<artist>,
+which does not make any sense.  In particular, different people/publishers
+would put there performer(s), composer, author of text/lyrics, or a combination
+of these.  The second problem is that the only allowed encoding was
+C<iso-8859-1>; since most of languages of the world can't be expressed
+in this encoding, this restriction was completely ignored, thus the
+encoding is essentially "unknown".
+
+Newer versions of C<ID3> allow specification of encodings; however,
+since there is no way to specify that the encoding is "unknown", when a
+tag is automatically upgraded from C<ID3v1>, it is most probably assumed to be
+in the "standard" C<iso-8859-1> encoding.  Thus impossibility to
+distinguish "unknown, assumed C<iso-8859-1>" from "known to be C<iso-8859-1>"
+in C<ID3v2>, essentially, makes any encoding specified in the tag "unknown"
+(or, at least, "untrusted").
+
+This is why this module provides what some may consider only lukewarm support
+for encoding field in ID3v2 tags: if done fully automatic, it can allow
+instant propagation of wrong information; and propagation in a form which
+is very hard to undo.
+
+Likewise, the same happens with the C<artist> field in C<ID3v1>.  Since there
+is no way to specify just "artist, type unknown" in C<ID3v2> tags, when
+C<ID3v1> tag is automatically upgraded to C<ID3v2>, the content would most
+probably be put in the "main performer", C<TPE1>, tag.  As a result, the
+content of C<TPE1> tag is also "untrusted" - it may contain, e.g., composer.
+
+In my opinion, a different field should be used for "known to be principal
+performer"; for example, the script F<mp3info2> shipped with this module
+uses C<%{TXXX[TPE1]}> in preference to C<%{TPE1}>.
+
+For example, interpolate C<%{TXXX[TPE1]|TPE1}> or C<%{TXXX[TPE1]|a}> -
+this will use the frame C<TXXX> with identifier C<TPE1> if present, if not,
+it will use the frame C<TPE1> (the first example), or will try to get I<artist>
+by other means (including C<TPE1> frame) (the second example).
+
 =head1 SEE ALSO
 
 L<MP3::Tag::ID3v1>, L<MP3::Tag::ID3v2>, L<MP3::Tag::File>,
-L<MP3::Tag::ParseData>, L<MP3::Tag::Inf>, L<MP3::Tag::CDDB_File>.
+L<MP3::Tag::ParseData>, L<MP3::Tag::Inf>, L<MP3::Tag::CDDB_File>, L<mp3info2>,
+L<typeset_audio_dir>.
 
 =head1 COPYRIGHT
 

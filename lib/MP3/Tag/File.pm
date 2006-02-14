@@ -105,6 +105,12 @@ sub truncate {
     }
 }
 
+sub size {
+    my ($self) = @_;
+    return -s $self->{FH} if exists $self->{FH};
+    return -s ($self->filename);
+}
+
 sub seek {
     my ($self, $pos, $whence)=@_;
     $self->open unless exists $self->{FH};
