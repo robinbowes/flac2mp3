@@ -9,18 +9,11 @@ package MP3::Tag::ID3v1;
 use strict;
 use vars qw /@mp3_genres @winamp_genres $AUTOLOAD %ok_length $VERSION @ISA/;
 
-$VERSION="0.9705";
+$VERSION="0.9708";
 @ISA = 'MP3::Tag::__hasparent';
 
 # allowed fields in ID3v1.1 and max length of this fields (except for track and genre which are coded later)
 %ok_length = (title => 30, artist => 30, album => 30, comment => 28, track => 3, genre => 30, year=>4, genreID=>1); 
-
-my $default_encoding_read   = $ENV{MP3TAG_DECODE_V1_DEFAULT};
-my $default_encoding_write  = $ENV{MP3TAG_ENCODE_V1_DEFAULT};
-$default_encoding_read   = $ENV{MP3TAG_DECODE_DEFAULT} unless defined $default_encoding_read;
-$default_encoding_write  = $ENV{MP3TAG_ENCODE_DEFAULT} unless defined $default_encoding_write;
-$default_encoding_write = $default_encoding_read
-    unless defined $default_encoding_write;
 
 =pod
 
@@ -193,13 +186,30 @@ Check whether the info in ID3v1 tag fits into the format of the file.
 sub fits_tag {
     my ($self, $hash) = (shift, shift);
     my $elt;
+    if (defined (my $track = $hash->{track})) {
+      return unless $track =~ /^\d{0,3}$/ and $track < 256;
+    }
+    my $s = '';
     for $elt (qw(title artist album comment year)) {
 	next unless defined (my $data = $hash->{$elt});
 	$data = $data->[0] if ref $data;
 	return if $data =~ /[^\x00-\xFF]/;
+	$s .= $data;
 	next if $ok_length{$elt} >= length $data;
-	next if $elt eq 'comment' and not $hash->{track} and length $data <= 30;
+	next
+	  if $elt eq 'comment' and not $hash->{track} and length $data <= 30;
 	return;
+    }
+    if ($s =~ /[^\x00-\x7E]/) {
+      my $w = ($self->get_config('encode_encoding_v1') || [0])->[0];
+      my $r = ($self->get_config('decode_encoding_v1') || [0])->[0];
+      $_ = (lc or 'iso-8859-1') for $r, $w;
+      # Safe: per-standard and read+write is idempotent:
+      return 1 if $r eq $w and $w eq 'iso-8859-1';
+      return !(($self->get_config('encoded_v1_fits')||[0])->[0])
+	if $w eq 'iso-8859-1';	# read+write not idempotent
+      return if $w ne $r
+	  and not ($self->get_config('encoded_v1_fits')||[0])->[0];
     }
     return 1;
 }
@@ -223,17 +233,17 @@ Writes the ID3v1 tag to the file.
 sub as_bin {
     my $self = shift;
     local $self->{track}=0 unless $self->{track} =~ /^\d+$/;
-    my (%f, $f);
+    my (%f, $f, $e);
     for $f (qw(title artist album comment) ) {
 	$f{$f} = $self->{$f};
     }
 
-    if ($default_encoding_write) {
+    if ($e = $self->get_config('encode_encoding_v1') and $e->[0]) {
         my $field;
         require Encode;
 
         for $field (qw(title artist album comment)) {
-          $f{$field} = Encode::encode($default_encoding_write, $f{$field});
+          $f{$field} = Encode::encode($e->[0], $f{$field});
         }
     }
 
@@ -277,9 +287,15 @@ sub write_tag {
 
   $id3v1->remove_tag();
 
-  [old name: removeTag() . The old name is still available, but you should use the new name]
+Removes the ID3v1 tag from the file.  Returns negative on failure,
+FALSE if no tag was found.
 
-Removes the ID3v1 tag from the file.
+(Caveat: only I<one tag> is removed; some - broken - files may have
+many chain-loaded one after another; you may need to call remove_tag()
+in a loop to handle such beasts.)
+
+[old name: removeTag() . The old name is still available, but you
+should use the new name]
 
 =cut
 
@@ -403,7 +419,7 @@ sub new_with_parent {
 # actually read the tag data
 sub read_tag {
     my ($self, $buffer) = @_;
-    my $id3v1;
+    my ($id3v1, $e);
 
     if ($self->{new}) {
 	($self->{title}, $self->{artist}, $self->{album}, $self->{year}, 
@@ -425,12 +441,12 @@ sub read_tag {
 	};
 	$self->{track} = '' unless $self->{track};
 	$self->{genre} = id2genre($self->{genreID});
-	if ($default_encoding_read) {
+	if ($e = $self->get_config('decode_encoding_v1') and $e->[0]) {
 	    my $field;
 	    require Encode;
 
 	    for $field (qw(title artist album comment)) {
-	      $self->{$field} = Encode::decode($default_encoding_read, $self->{$field});
+	      $self->{$field} = Encode::decode($e->[0], $self->{$field});
 	    }
 	}
     }

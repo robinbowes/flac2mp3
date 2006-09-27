@@ -5,7 +5,7 @@ use File::Basename;
 use File::Spec;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.03";
+$VERSION="0.9706";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -57,7 +57,7 @@ sub new_fromdir {
     my $class = shift;
     my $h = shift;
     my $dir = $h->{dir};
-    my $found;
+    my ($found, $e);
     my $l = $h->get_config('cddb_files');
     for my $file (@$l) {
 	my $f = File::Spec->catdir($dir, $file);
@@ -66,10 +66,13 @@ sub new_fromdir {
     return unless $found;
     local *F;
     open F, "< $found" or die "Can't open `$found': $!";
+    if ($e = $h->get_config('decode_encoding_cddb_file') and $e->[0]) {
+      eval "binmode F, ':encoding($e->[0])'"; # old binmode won't compile...
+    }
     my @data = <F>;
     close F or die "Error closing `$found': $!";
     bless {filename => $found, data => \@data, track => shift,
-	   parent => $h->{parent}}, $class;    
+	   parent => $h->{parent}}, $class;
 }
 
 sub new {

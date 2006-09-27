@@ -5,7 +5,7 @@ use Fcntl;
 use File::Basename;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.95";
+$VERSION="0.9708";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -39,7 +39,7 @@ the filename() method.
 
 sub new_with_parent {
     my ($class, $filename, $parent) = @_;
-    return undef unless -f $filename;
+    return undef unless -f $filename or -c $filename;
     return bless {filename => $filename, parent => $parent}, $class;
 }
 *new = \&new_with_parent;	# Obsolete handler
@@ -187,9 +187,10 @@ sub get_mp3_frame_header {
 
   ($title, $artist, $no, $album, $year) = $mp3->parse_filename($what, $filename);
 
-parse_filename() tries to extract information about artist, title, track number,
-album and year from the filename.  (For backward compatibility it may be also
-called by deprecated name read_filename().)
+parse_filename() tries to extract information about artist, title,
+track number, album and year from the filename.  (For backward
+compatibility it may be also called by deprecated name
+read_filename().)
 
 This is likely to fail for a lot of filenames, especially the album will
 be often wrongly guessed, as the name of the parent directory is taken as
@@ -198,8 +199,10 @@ album name.
 $what and $filename are optional. $what maybe title, track, artist, album
 or year. If $what is defined parse_filename() will return only this element.
 
-If $filename is defined this filename will be used and not the real filename
-which was set by L<MP3::Tag> with C<MP3::Tag->new($filename)>.
+If $filename is defined this filename will be used and not the real
+filename which was set by L<MP3::Tag> with
+C<MP3::Tag->new($filename)>.  Otherwise the actual filename is used
+(subject to configuration variable C<decode_encoding_filename>).
 
 Following formats will be hopefully recognized:
 
@@ -231,16 +234,23 @@ sub return_parsed {
 	return $self->{parsed}{year}   if $what =~/^y/i;
 	return $self->{parsed}{title};
     }
-    
+
     return $self->{parsed} unless wantarray;
     return map $self->{parsed}{$_} , qw(title artist no album year);
 }
 
 sub parse_filename {
     my ($self,$what,$filename) = @_;
-    $filename = $self->filename unless defined $filename;
+    unless (defined $filename) {
+      $filename = $self->filename;
+      my $e;
+      if ($e = $self->get_config('decode_encoding_filename') and $e->[0]) {
+	require Encode;
+	$filename = Encode::decode($e->[0], $filename);
+      }
+    }
     my $pathandfile = $filename;
-    
+
     $self->return_parsed($what)	if exists $self->{parsed_filename}
 				   and $self->{parsed_filename} eq $filename;
 
@@ -248,7 +258,7 @@ sub parse_filename {
     my $ext_rex = $self->get_config('extension')->[0];
     $pathandfile =~ s/$ext_rex//;		# remove extension
     $pathandfile =~ s/ +/ /g; # replace several spaces by one space
-    
+
     # Keep two last components of the file name
     my ($file, $path) = fileparse($pathandfile, "");
     ($path) = fileparse($path, "");
@@ -256,7 +266,7 @@ sub parse_filename {
 
     # check which chars are used for seperating words
     #   assumption: spaces between words
-    
+
     unless ($file =~/ /) {
 	# no spaces used, find word seperator
 	my $Ndot = $file =~ tr/././;
@@ -275,9 +285,9 @@ sub parse_filename {
 
     # check wich chars are used for seperating parts
     #   assumption: " - " is used
-    
+
     my $partsep = " - ";
-    
+
     unless ($file =~ / - /) {
 	if ($file =~ /-/) {
 	    $partsep = "-";
@@ -335,7 +345,7 @@ sub parse_filename {
 	}
 	$title=$temp;
     }
-    
+
     $title =~ s/ +$//;
     $artist =~ s/ +$//;
     $no =~ s/ +$//;
@@ -343,7 +353,7 @@ sub parse_filename {
     # Special-case names like audio12 etc created by some software
     # (cdda2wav, gramofile, etc)
     $no = $+ if not $no and $title =~ /^(\d+)?(?:audio|track|processed)\s*(\d+)?$/i and $+;
-    
+
     $no =~ s/^0+//;
 
     if ($path) {

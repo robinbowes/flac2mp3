@@ -3,7 +3,7 @@ package MP3::Tag::Inf;
 use strict;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.01";
+$VERSION="0.9706";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -99,7 +99,7 @@ sub return_parsed {
 	return $self->{parsed}{genre}  if $what =~/^g/i;
 	return $self->{parsed}{title};
     }
-    
+
     return $self->{parsed} unless wantarray;
     return map $self->{parsed}{$_} , qw(title artist album year comment track);
 }
@@ -110,6 +110,10 @@ sub parse {
     $self->return_parsed($what)	if exists $self->{parsed};
     local *IN;
     open IN, "< $self->{filename}" or die "Error opening `$self->{filename}': $!";
+    my $e;
+    if ($e = $self->get_config('decode_encoding_inf') and $e->[0]) {
+      eval "binmode IN, ':encoding($e->[0])'"; # old binmode won't compile...
+    }
     my ($line, %info);
     for $line (<IN>) {
 	$self->{info}{ucfirst lc $1} = $2
