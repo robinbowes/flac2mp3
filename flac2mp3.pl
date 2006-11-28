@@ -55,8 +55,13 @@ our %MP3frames = (
     'ALBUM'                   => 'TALB',
     'ARTIST'                  => 'TPE1',
     'COMMENT'                 => 'COMM',
+    'COMPOSER'	              => 'TCOM',
+    'CONDUCTOR'	              => 'TPE3',
     'DATE'                    => 'TYER',
     'GENRE'                   => 'TCON',
+    'ISRC'	              => 'TSRC',
+    'LYRICIST'	              => 'TEXT',
+    'PUBLISHER'	              => 'TPUB',
     'TITLE'                   => 'TIT2',
     'TRACKNUMBER'             => 'TRCK',
     'MUSICBRAINZ_ALBUMID'     => 'TXXX',
@@ -73,6 +78,7 @@ our %MP3frames = (
 );
 
 our %MP3frametexts = (
+    'COMMENT'			=> 'Short Text',
     'MUSICBRAINZ_ALBUMARTISTID' => 'MusicBrainz Album Artist Id',
     'MUSICBRAINZ_ALBUMID'       => 'MusicBrainz Album Id',
     'MUSICBRAINZ_ALBUMSTATUS'   => 'MusicBrainz Album Status',
@@ -94,8 +100,10 @@ our %MP3frametexts = (
 #   'Description'   => 'Short Text'
 #   'Text'      => 'This is the actual comment field'
 #
-# In this case, we want to grab the content of the 'Text' key.
-our %Complex_Frame_Keys = ( 'COMM' => 'Text', 'TXXX' => 'Text', 'UFID' => 'Text');
+# In this case, we want to use the "Description" to check if this is the
+# correct frame.
+# We always grab the "Text" for the frame data.
+our %Complex_Frame_Keys = ( 'COMM' => 'Description', 'TXXX' => 'Description', 'UFID' => '_Data');
 
 our %Options;
 
@@ -104,6 +112,7 @@ $SIG{INT} = \&INT_Handler;
 
 GetOptions( \%Options,
             "quiet!", 
+	    "tagdiff",
             "debug!",
             "tagsonly!",
             "force!",
@@ -218,6 +227,7 @@ Usage: $0 [--quiet] [--debug] [--tagsonly] [--force] <flacdir> <mp3dir>
     --debug         Enable debugging output. For developers only!
     --tagsonly      Don't do any transcoding - just update tags
     --force         Force transcoding and tag update even if not required
+    --tagiff	    Print source/dest tag values if different
 EOT
     exit 0;
 }
@@ -336,41 +346,102 @@ sub convert_file {
                     $::Options{debug} && msg("method is '$method'\n");
 
                     # Check for tag in destfile
-                    my ( $destframe, @info ) = $ID3v2->get_frame($method);
-                    $destframe = '' if ( !defined $destframe );
+                    my ( $tagname, @info ) = $ID3v2->get_frames($method);
+                    #$destframe = '' if ( !defined $destframe );
 
                     $::Options{debug}
-                      && print Dumper $destframe, @info;
+                      && print "values from id3v2 tags:\n" . Dumper \$tagname, \@info;
 
-                    my $dest_text;
+                    my $dest_text = '';
+
+#XXX FIXME TODO:
+#Map Vorbis comments onto TXXX frames
+#
+#There can be several TXXX frames.
+#All are returned by the call to get_frames
+#The data structure returned is an array of hashes, something like:
+#$VAR1 = \'User defined text information frame';
+#$VAR2 = [
+#          {
+#            'Description' => 'MusicBrainz Album Id',
+#            'Text' => '68d1f0b1-3805-4c63-A7df-Ee84350946e2',
+#            'encoding' => 0
+#          },
+#          {
+#            'Description' => 'MusicBrainz Album Type',
+#            'Text' => 'Album',
+#            'encoding' => 0
+#          },
+#          {
+#            'Description' => 'MusicBrainz Sortname',
+#            'Text' => 'All About Eve',
+#            'encoding' => 0
+#          },
+#          {
+#            'Description' => 'MusicBrainz Artist Id',
+#            'Text' => '6080fe70-84e9-43ae-98b7-94b4c4d6b5c3',
+#            'encoding' => 0
+#          },
+#          {
+#            'Description' => 'MusicBrainz Album Status',
+#            'Text' => 'Official',
+#            'encoding' => 0
+#          },
+#          {
+#            'Description' => 'MusicBrainz TRM Id',
+#            'Text' => 'D5c81e99-F7ac-40cd-B171-Ec2b159a6cce',
+#            'encoding' => 0
+#          }
+#        ];
+#
+#I need to map these values to a flac file with Vorbis comments like this:
+#
+#Musicbrainz_trmid: D5c81e99-F7ac-40cd-B171-Ec2b159a6cce
+#
+#i.e.
+#
+# Comment "Musicbrainz_trmid" maps to 
+# ID3v2 tag "TXXX" with Description "MusicBrainz TRM Id"
 
                     # check for complex frame (e.g. Comments)
-                    if ( ref $destframe ) {
-                        my $cfname = $Complex_Frame_Keys{$method};
-                        $dest_text = $$destframe{$cfname};
-                    }
-                    else {
-                        $dest_text = $destframe;
-                    }
+		    TAGLOOP:
+                    foreach my $tag_info (@info) {
+			if ( ref $tag_info ) {
+                            my $cfname = $MP3frametexts{$frame};
+			    my $cfkey = $Complex_Frame_Keys{$method};
+#			    print "frame: $frame\ncfkey: $cfkey\ncfname: $cfname\n";
+	                    if ( $$tag_info{$cfkey} eq $cfname ) {
+				$dest_text = $$tag_info{'Text'};
+				last TAGLOOP;
+			    }
+			} else {
+			    $dest_text = $tag_info;
+			}
+		    }	
 		    
                     $::Options{debug}
-                        && print "\$dest_text: " . Dumper $dest_text;
+                        && print "\$dest_text xxx2: " . Dumper $dest_text;
                     # Fix up TRACKNUMBER
                     if ( $frame eq "TRACKNUMBER" ) {
-                        if ( $destframe < 10 ) {
-                            $dest_text = sprintf( "%02u", $destframe );
+                        if ( $dest_text < 10 ) {
+                            $dest_text = sprintf( "%02u", $dest_text );
                         }
                     }
 
                     # get tag from srcfile
                     my $srcframe = utf8toLatin1( $changedframes{$frame} );
                     $srcframe = '' if ( !defined $srcframe );
+		    # Strip trailing spaces from src frame value
+		    $srcframe =~ s/ *$//;
 
-                    $::Options{debug} && msg("srcframe value: '$srcframe'\n");
-                    $::Options{debug} && msg("destframe value: '$dest_text'\n");
 
                     # If set the flag if any frame is different
                     if ( $dest_text ne $srcframe ) {
+			if ($::Options{tagdiff}) {
+			    msg("frame: '$frame'\n");
+			    msg("srcframe value: '$srcframe'\n");
+			    msg("destframe value: '$dest_text'\n");
+			}
                         $pflags{tags} = 1;
                     }
                 }
@@ -404,24 +475,46 @@ sub convert_file {
           )
         {
 
-            # Building command used to convert file (tagging done afterwards)
-            # Needs some work on quoting filenames containing special characters
-            my $quotedsrc       = $srcfilename;
-            my $quoteddest      = $destfilename;
-            my $convert_command =
-                "$flaccmd @flacargs \"$quotedsrc\""
-              . "| $lamecmd @lameargs - \"$quoteddest\"";
+#            # Building command used to convert file (tagging done afterwards)
+#            # Needs some work on quoting filenames containing special characters
+#            my $quotedsrc       = $srcfilename;
+#            my $quoteddest      = $destfilename;
+#            my $convert_command =
+#                "$flaccmd @flacargs \"$quotedsrc\""
+#              . "| $lamecmd @lameargs - \"$quoteddest\"";
+#
+#            $::Options{debug} && msg("$convert_command\n");
+#
+	    print "About to fork lame...\n";
+            $| = 1; 
+	    my $PIPE_TO_LAME;
+            defined(my $lame_pid = open $PIPE_TO_LAME, "|-") 
+                or die("fork() failed: $!\n"); 
 
-            $::Options{debug} && msg("$convert_command\n");
+            if (!$lame_pid) { 
+                exec($lamecmd, @lameargs, '-', $destfilename); 
+                die("exec() failed: $!\n"); 
+            } 
+            binmode($PIPE_TO_LAME); 
+
+            open my $SAVEOUT, ">&", STDOUT; 
+            open STDOUT, ">&", $PIPE_TO_LAME; 
+            binmode(STDOUT); 
+            select(STDOUT); 
+            $| = 1; 
 
             # Convert the file
-            my $exit_value = system($convert_command);
+#            my $exit_value = system($convert_command);
+	    my $exit_value = system($flaccmd, @flacargs, $srcfilename);
+	    open STDOUT, ">&", $SAVEOUT;
 
             $::Options{debug}
-              && msg("Exit value from convert command: $exit_value\n");
+              && msg("Exit value from flac command: $exit_value\n");
+#              && msg("Exit value from convert command: $exit_value\n");
 
             if ($exit_value) {
-                msg("$convert_command failed with exit code $exit_value\n");
+#                msg("$convertcmd failed with exit code $exit_value\n");
+                msg("$flaccmd failed with exit code $exit_value\n");
 
                 # delete the destfile if it exists
                 unlink $destfilename;
@@ -467,13 +560,13 @@ sub convert_file {
 		# treated differently.
                 if ( $method eq "COMM" ) {
                     $mp3->{"ID3v2"}
-                      ->add_frame( $method, 'ENG', 'Short text', $framestring );
+                      ->add_frame( $method, 'ENG', 'Short Text', $framestring );
                 }
                 elsif ( $method eq "TXXX" ) {
                     my $frametext = $MP3frametexts{$frame};
                     $frametext = $frame if ( !( defined($frametext) ) );
                     $mp3->{"ID3v2"}
-                      ->add_frame( $method, 'ENG', $frametext, $framestring );
+                      ->add_frame( $method, 0, $frametext, $framestring );
                 }
 		elsif ( $method eq 'UFID' ) {
 		    my $frametext = $MP3frametexts{$frame};
