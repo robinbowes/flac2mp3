@@ -227,7 +227,7 @@ Usage: $0 [--quiet] [--debug] [--tagsonly] [--force] <flacdir> <mp3dir>
     --debug         Enable debugging output. For developers only!
     --tagsonly      Don't do any transcoding - just update tags
     --force         Force transcoding and tag update even if not required
-    --tagiff	    Print source/dest tag values if different
+    --tagdiff	    Print source/dest tag values if different
 EOT
     exit 0;
 }
