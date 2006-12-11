@@ -266,9 +266,12 @@ sub convert_file {
     }
 
     # Fix up TRACKNUMBER
-    my $srcTrackNum = $changedframes{'TRACKNUMBER'} * 1;
-    if ( $srcTrackNum < 10 ) {
+    my $srcTrackNum = $changedframes{'TRACKNUMBER'};
+    if ( looks_like_number $srcTrackNum ) {
         $changedframes{'TRACKNUMBER'} = sprintf( "%02u", $srcTrackNum );
+    }
+    else {
+        $::Options{info} && msg("TRACKNUMBER not numeric in $srcfilename\n");
     }
 
     if ( $::Options{debug} ) {
@@ -469,9 +472,10 @@ sub convert_file {
         $::Options{info} && msg("Processing \"$srcfilename\"\n");
 
         if ($::Options{force}
-            || ( !$::Options{tagsonly}
+            || (!$::Options{tagsonly}
                 && ( !$pflags{exists}
-                    || ( $pflags{exists} && !$pflags{tags} ) ) )
+                    || ( $pflags{exists} && !$pflags{tags} ) )
+            )
             )
         {
 
