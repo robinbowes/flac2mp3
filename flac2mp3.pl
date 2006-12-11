@@ -618,6 +618,7 @@ sub fixUpTrackNumber {
 	    $::Options{info} && msg("TRACKNUMBER not numeric in $filename\n");
         }
     }
+    return $trackNum;
 }
 
 # vim:set softtabstop=4:
