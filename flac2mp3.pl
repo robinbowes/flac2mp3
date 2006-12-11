@@ -267,17 +267,7 @@ sub convert_file {
     }
 
     # Fix up TRACKNUMBER
-    my $srcTrackNum = $changedframes{'TRACKNUMBER'};
-    # Check TRACKNUMBER tag is not empty
-    if ($srcTrackNum) {
-	# Check TRACKNUMBER tag is numeric
-        if ( looks_like_number( $srcTrackNum ) ) {
-            $changedframes{'TRACKNUMBER'} = sprintf( "%02u", $srcTrackNum );
-	}
-        else {
-	    $::Options{info} && msg("TRACKNUMBER not numeric in $srcfilename\n");
-        }
-    }
+    $changedframes{'TRACKNUMBER'} = fixUpTrackNumber($changedframes{'TRACKNUMBER'}, $srcfilename);
 
     if ( $::Options{debug} ) {
         print "Tags we know how to deal with from source file:\n";
@@ -432,9 +422,7 @@ sub convert_file {
 
                     # Fix up TRACKNUMBER
                     if ( $frame eq "TRACKNUMBER" ) {
-                        if ( $dest_text < 10 ) {
-                            $dest_text = sprintf( "%02u", $dest_text );
-                        }
+			$dest_text = fixUpTrackNumber($dest_text, $destfilename);
                     }
 
                     # get tag from srcfile
@@ -615,6 +603,21 @@ sub utf8toLatin1 {
     }
 
     return $data;
+}
+
+sub fixUpTrackNumber {
+    my ($trackNum, $filename) = @_;
+
+    # Check TRACKNUMBER tag is not empty
+    if ($trackNum) {
+	# Check TRACKNUMBER tag is numeric
+        if ( looks_like_number( $trackNum ) ) {
+            $trackNum = sprintf( "%02u", $trackNum );
+	}
+        else {
+	    $::Options{info} && msg("TRACKNUMBER not numeric in $filename\n");
+        }
+    }
 }
 
 # vim:set softtabstop=4:
