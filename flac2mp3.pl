@@ -24,7 +24,7 @@ use File::Spec;
 use File::stat;
 use Getopt::Long;
 use MP3::Tag;
-use Scalar::Util; # for looks_like_number
+use Scalar::Util qw/ looks_like_number /;
 
 # ------- User-config options start here --------
 # Assume flac and lame programs are in the path.
@@ -271,7 +271,7 @@ sub convert_file {
     # Check TRACKNUMBER tag is not empty
     if ($srcTrackNum) {
 	# Check TRACKNUMBER tag is numeric
-        if ( Scalar::Util::looks_like_number( $srcTrackNum ) ) {
+        if ( looks_like_number( $srcTrackNum ) ) {
             $changedframes{'TRACKNUMBER'} = sprintf( "%02u", $srcTrackNum );
 	}
         else {
