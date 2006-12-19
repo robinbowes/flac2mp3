@@ -132,6 +132,7 @@ $| = 1;
 
 my ( $srcdirroot, $destdirroot ) = @ARGV;
 
+# FIXME: this should probably be "exists $Options{...}"
 showversion() if ( $Options{version} );
 showhelp()    if ( $Options{help} );
 showusage()
@@ -267,11 +268,12 @@ sub convert_file {
     }
 
     # Fix up TRACKNUMBER
-    if ($changedframes{'TRACKNUMBER'}) {
-	my $fixeduptracknumber = fixUpTrackNumber($changedframes{'TRACKNUMBER'}, $srcfilename);
-	if ($fixeduptracknumber ne $changedframes{'TRACKNUMBER'}) { 
-	    $changedframes{'TRACKNUMBER'} = $fixeduptracknumber;
-	}
+    if ( $changedframes{'TRACKNUMBER'} ) {
+        my $fixeduptracknumber
+            = fixUpTrackNumber( $changedframes{'TRACKNUMBER'}, $srcfilename );
+        if ( $fixeduptracknumber ne $changedframes{'TRACKNUMBER'} ) {
+            $changedframes{'TRACKNUMBER'} = $fixeduptracknumber;
+        }
     }
 
     if ( $::Options{debug} ) {
@@ -427,10 +429,11 @@ sub convert_file {
 
                     # Fix up TRACKNUMBER
                     if ( $frame eq "TRACKNUMBER" ) {
-			my $fixeduptracknumber = fixUpTrackNumber($dest_text, $destfilename);
-			if ($fixeduptracknumber ne $dest_text) {
-			    $dest_text = $fixeduptracknumber;
-			}
+                        my $fixeduptracknumber
+                            = fixUpTrackNumber( $dest_text, $destfilename );
+                        if ( $fixeduptracknumber ne $dest_text ) {
+                            $dest_text = $fixeduptracknumber;
+                        }
                     }
 
                     # get tag from srcfile
@@ -490,7 +493,6 @@ sub convert_file {
 #
 #            $::Options{debug} && msg("$convert_command\n");
 #
-            print "About to fork lame...\n";
             $| = 1;
             my $PIPE_TO_LAME;
             defined( my $lame_pid = open $PIPE_TO_LAME, "|-" )
@@ -561,31 +563,33 @@ sub convert_file {
                 # Convert utf8 string to Latin1 charset
                 my $framestring = utf8toLatin1( $changedframes{$frame} );
 
-		# Only add the frame if framestring is not empty
-		if ($framestring) {
-                    $::Options{debug} && msg("Setting $frame = '$framestring'\n");
+                # Only add the frame if framestring is not empty
+                if ($framestring) {
+                    $::Options{debug}
+                        && msg("Setting $frame = '$framestring'\n");
 
                     # COMM, TXX, and UFID are Complex frames that must be
                     # treated differently.
                     if ( $method eq "COMM" ) {
-                        $mp3->{"ID3v2"}->add_frame( $method, 'ENG', 'Short Text',
-	                    $framestring );
-	            }
-		    elsif ( $method eq "TXXX" ) {
-		        my $frametext = $MP3frametexts{$frame};
-                        $frametext = $frame if ( !( defined($frametext) ) );
-	                $mp3->{"ID3v2"}
-	                    ->add_frame( $method, 0, $frametext, $framestring );
-		    }
-                    elsif ( $method eq 'UFID' ) {
-	                my $frametext = $MP3frametexts{$frame};
-	                $mp3->{'ID3v2'}
-		            ->add_frame( $method, $framestring, $frametext );
+                        $mp3->{"ID3v2"}
+                            ->add_frame( $method, 'ENG', 'Short Text',
+                            $framestring );
                     }
-	            else {
-	                $mp3->{"ID3v2"}->add_frame( $method, $framestring );
-		    }
-		}
+                    elsif ( $method eq "TXXX" ) {
+                        my $frametext = $MP3frametexts{$frame};
+                        $frametext = $frame if ( !( defined($frametext) ) );
+                        $mp3->{"ID3v2"}->add_frame( $method, 0, $frametext,
+                            $framestring );
+                    }
+                    elsif ( $method eq 'UFID' ) {
+                        my $frametext = $MP3frametexts{$frame};
+                        $mp3->{'ID3v2'}
+                            ->add_frame( $method, $framestring, $frametext );
+                    }
+                    else {
+                        $mp3->{"ID3v2"}->add_frame( $method, $framestring );
+                    }
+                }
             }
 
             $mp3->{ID3v2}->write_tag;
@@ -617,16 +621,17 @@ sub utf8toLatin1 {
 }
 
 sub fixUpTrackNumber {
-    my ($trackNum, $filename) = @_;
+    my ( $trackNum, $filename ) = @_;
 
     # Check TRACKNUMBER tag is not empty
     if ($trackNum) {
-	# Check TRACKNUMBER tag is numeric
-        if ( looks_like_number( $trackNum ) ) {
+
+        # Check TRACKNUMBER tag is numeric
+        if ( looks_like_number($trackNum) ) {
             $trackNum = sprintf( "%02u", $trackNum );
-	}
+        }
         else {
-	    $::Options{info} && msg("TRACKNUMBER not numeric in $filename\n");
+            $::Options{info} && msg("TRACKNUMBER not numeric in $filename\n");
         }
     }
     return $trackNum;
