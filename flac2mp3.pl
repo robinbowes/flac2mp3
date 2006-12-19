@@ -1,4 +1,4 @@
-#!/usr/bin/perl -w
+#!/bin/env perl
 #
 # flac2mp3.pl
 #
@@ -12,6 +12,7 @@
 # Release History:
 #  - See changelog.txt
 
+use warnings;
 use strict;
 use FindBin;
 use lib "$FindBin::Bin/lib";
@@ -45,11 +46,6 @@ our @flacargs = qw (
     --stdout
     --silent
 );
-
-# FLAC/MP3 tag/frame mapping
-# Flac:     ALBUM  ARTIST  TITLE  DATE  GENRE  TRACKNUMBER  COMMENT
-# ID3v2:    ALBUM  ARTIST  TITLE  YEAR  GENRE  TRACK        COMMENT
-# Frame:    TALB   TPE1    TIT2   TYER  TCON   TRCK         COMM
 
 # hash mapping FLAC tag names to MP3 frames
 our %MP3frames = (
@@ -357,55 +353,6 @@ sub convert_file {
 
                     my $dest_text = '';
 
-     #XXX FIXME TODO:
-     #Map Vorbis comments onto TXXX frames
-     #
-     #There can be several TXXX frames.
-     #All are returned by the call to get_frames
-     #The data structure returned is an array of hashes, something like:
-     #$VAR1 = \'User defined text information frame';
-     #$VAR2 = [
-     #          {
-     #            'Description' => 'MusicBrainz Album Id',
-     #            'Text' => '68d1f0b1-3805-4c63-A7df-Ee84350946e2',
-     #            'encoding' => 0
-     #          },
-     #          {
-     #            'Description' => 'MusicBrainz Album Type',
-     #            'Text' => 'Album',
-     #            'encoding' => 0
-     #          },
-     #          {
-     #            'Description' => 'MusicBrainz Sortname',
-     #            'Text' => 'All About Eve',
-     #            'encoding' => 0
-     #          },
-     #          {
-     #            'Description' => 'MusicBrainz Artist Id',
-     #            'Text' => '6080fe70-84e9-43ae-98b7-94b4c4d6b5c3',
-     #            'encoding' => 0
-     #          },
-     #          {
-     #            'Description' => 'MusicBrainz Album Status',
-     #            'Text' => 'Official',
-     #            'encoding' => 0
-     #          },
-     #          {
-     #            'Description' => 'MusicBrainz TRM Id',
-     #            'Text' => 'D5c81e99-F7ac-40cd-B171-Ec2b159a6cce',
-     #            'encoding' => 0
-     #          }
-     #        ];
-     #
-     #I need to map these values to a flac file with Vorbis comments like this:
-     #
-     #Musicbrainz_trmid: D5c81e99-F7ac-40cd-B171-Ec2b159a6cce
-     #
-     #i.e.
-     #
-     # Comment "Musicbrainz_trmid" maps to
-     # ID3v2 tag "TXXX" with Description "MusicBrainz TRM Id"
-
                     # check for complex frame (e.g. Comments)
                 TAGLOOP:
                     foreach my $tag_info (@info) {
@@ -413,7 +360,6 @@ sub convert_file {
                             my $cfname = $MP3frametexts{$frame};
                             my $cfkey  = $Complex_Frame_Keys{$method};
 
-               #			    print "frame: $frame\ncfkey: $cfkey\ncfname: $cfname\n";
                             if ( $$tag_info{$cfkey} eq $cfname ) {
                                 $dest_text = $$tag_info{'Text'};
                                 last TAGLOOP;
@@ -483,16 +429,6 @@ sub convert_file {
             )
         {
 
-#            # Building command used to convert file (tagging done afterwards)
-#            # Needs some work on quoting filenames containing special characters
-#            my $quotedsrc       = $srcfilename;
-#            my $quoteddest      = $destfilename;
-#            my $convert_command =
-#                "$flaccmd @flacargs \"$quotedsrc\""
-#              . "| $lamecmd @lameargs - \"$quoteddest\"";
-#
-#            $::Options{debug} && msg("$convert_command\n");
-#
             $| = 1;
             my $PIPE_TO_LAME;
             defined( my $lame_pid = open $PIPE_TO_LAME, "|-" )
@@ -511,18 +447,14 @@ sub convert_file {
             $| = 1;
 
             # Convert the file
-            #            my $exit_value = system($convert_command);
             my $exit_value = system( $flaccmd, @flacargs, $srcfilename );
             open STDOUT, ">&", $SAVEOUT;
 
             $::Options{debug}
                 && msg("Exit value from flac command: $exit_value\n");
 
-       #              && msg("Exit value from convert command: $exit_value\n");
-
             if ($exit_value) {
 
-       #                msg("$convertcmd failed with exit code $exit_value\n");
                 msg("$flaccmd failed with exit code $exit_value\n");
 
                 # delete the destfile if it exists
