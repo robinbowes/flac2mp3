@@ -1,4 +1,15 @@
 v0.2.8
+ - fixups related to checking of TRACKNUMBER tag
+ - Added support for Composer,Conductor, ISRC, Lyricist, Publisher
+   tags
+ - Fixed complex tags - Comments and Musicbrainz tags now work
+ - correctly
+ - Strip trailing spaces from source file tag values to work around a
+   bug in MP3::Tag (it doesn't write trailing spaces)
+ - Added "--tagdif" option - when enabled it prints any changed tag 
+   values
+ - Use fork/exec to run flac/lame. Bypasses any shell quoting issues.
+   However, will it work on Windows?
  - added new options:
      --usage 
      --help
