@@ -1,7 +1,7 @@
 v0.2.8
  - fixups related to checking of TRACKNUMBER tag
- - Added support for Composer,Conductor, ISRC, Lyricist, Publisher
-   tags
+ - Added support for Composer,Conductor, ISRC, Lyricist, Publisher,
+   Discnumber tags
  - Fixed complex tags - Comments and Musicbrainz tags now work
  - correctly
  - Strip trailing spaces from source file tag values to work around a
