@@ -55,6 +55,7 @@ our %MP3frames = (
     'COMPOSER'                => 'TCOM',
     'CONDUCTOR'               => 'TPE3',
     'DATE'                    => 'TYER',
+    'DISCNUMBER'              => 'TPOS',
     'GENRE'                   => 'TCON',
     'ISRC'                    => 'TSRC',
     'LYRICIST'                => 'TEXT',
