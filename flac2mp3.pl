@@ -432,17 +432,17 @@ sub convert_file {
 
             $| = 1;
             my $PIPE_TO_LAME;
-            defined( my $lame_pid = open $PIPE_TO_LAME, "|-" )
+            defined( my $lame_pid = pipe_to_fork( \*PIPE_TO_LAME ) )
                 or die("fork() failed: $!\n");
 
             if ( !$lame_pid ) {
                 exec( $lamecmd, @lameargs, '-', $destfilename );
                 die("exec() failed: $!\n");
             }
-            binmode($PIPE_TO_LAME);
+            binmode(PIPE_TO_LAME);
 
             open my $SAVEOUT, ">&", STDOUT;
-            open STDOUT, ">&", $PIPE_TO_LAME;
+            open STDOUT, ">&", PIPE_TO_LAME;
             binmode(STDOUT);
             select(STDOUT);
             $| = 1;
@@ -568,6 +568,21 @@ sub fixUpTrackNumber {
         }
     }
     return $trackNum;
+}
+
+sub pipe_to_fork {
+    my $parent = shift;
+    pipe my $child, $parent or die;
+    my $pid = fork();
+    die "fork() failed: $!" unless defined $pid;
+    if ($pid) {
+        close $child;
+    }
+    else {
+        close $parent;
+        open( STDIN, "<&=" . fileno($child) ) or die;
+    }
+    $pid;
 }
 
 # vim:set softtabstop=4:
