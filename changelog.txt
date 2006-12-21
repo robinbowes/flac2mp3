@@ -1,3 +1,7 @@
+v0.2.9
+ - Rewrite of fork/exec code to work on Windows
+   (thanks Darren Warner <darren@dazwin.com>)
+ - Check that flac and lame commands are available at startup
 v0.2.8
  - fixups related to checking of TRACKNUMBER tag
  - Added support for Composer,Conductor, ISRC, Lyricist, Publisher,
@@ -10,6 +14,7 @@ v0.2.8
    values
  - Use fork/exec to run flac/lame. Bypasses any shell quoting issues.
    However, will it work on Windows?
+   (thanks  Darren Warner <darren@dazwin.com>)
  - added new options:
      --usage 
      --help
