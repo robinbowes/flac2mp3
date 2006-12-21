@@ -2,7 +2,7 @@
 #
 # flac2mp3.pl
 #
-# Version 0.2.8
+# Version 0.2.9
 #
 # Converts a directory full of flac files into a corresponding
 # directory of mp3 files
@@ -17,12 +17,14 @@ use strict;
 use FindBin;
 use lib "$FindBin::Bin/lib";
 use Audio::FLAC::Header;
+use Carp;
 use Data::Dumper;
 use File::Basename;
 use File::Find::Rule;
 use File::Path;
 use File::Spec;
 use File::stat;
+use File::Which;
 use Getopt::Long;
 use MP3::Tag;
 use Scalar::Util qw/ looks_like_number /;
@@ -129,13 +131,19 @@ $| = 1;
 
 my ( $srcdirroot, $destdirroot ) = @ARGV;
 
-# FIXME: this should probably be "exists $Options{...}"
 showversion() if ( $Options{version} );
 showhelp()    if ( $Options{help} );
 showusage()
     if ( !defined $srcdirroot
     || !defined $destdirroot
     || $Options{usage} );
+
+# Check flac and lame are found
+foreach my $cmd ($flaccmd, $lamecmd) {
+    my $cmdpath = which($cmd);
+    croak "$cmd not found" unless $cmdpath;
+    $Options{info} && print "Using $cmd from: $cmdpath\n";
+}
 
 # Convert directories to absolute paths
 $srcdirroot  = File::Spec->rel2abs($srcdirroot);
