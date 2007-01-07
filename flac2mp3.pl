@@ -32,6 +32,13 @@ use Scalar::Util qw/ looks_like_number /;
 # ------- User-config options start here --------
 # Assume flac and lame programs are in the path.
 # If not, put full path to programs here.
+#
+# On Windows:
+#  * If you specify a path, you must include the ".exe" extension
+#  * You can use "/" or "\\" as path separator, e.g.:
+#      c:/windows/system32/flac.exe
+#    or
+#      c:\\windows\\system32\\flac.exe
 our $flaccmd = "flac";
 our $lamecmd = "lame";
 
