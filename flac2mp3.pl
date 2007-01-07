@@ -451,42 +451,58 @@ sub convert_file {
             )
             )
         {
+	    # Start the decoder with a pipe to the parent for output 
+	    my $PIPE_FROM_FLAC;
+	    defined( my $flac_pid = pipe_from_fork( \*PIPE_FROM_FLAC ) )
+		or die("fork() failed: $!\n");
+	    if ( !$flac_pid ) {
+		exec( $flaccmd, @flacargs, $srcfilename );
+		die("exec() failed: $!\n"); # Should never get here
+	    }
 
-            $| = 1;
-            my $PIPE_TO_LAME;
-            defined( my $lame_pid = pipe_to_fork( \*PIPE_TO_LAME ) )
-                or die("fork() failed: $!\n");
+	    # Start the encoder using the new pipe as input
+	    defined( my $lame_pid = fork() )
+		or die("fork() failed: $!\n");
+	    if ( !$lame_pid ) {
+		open( STDIN, "<&=" . fileno(PIPE_FROM_FLAC) )
+		    or die("open() failed: $!\n");
 
-            if ( !$lame_pid ) {
-                exec( $lamecmd, @lameargs, '-', $destfilename );
-                die("exec() failed: $!\n");
-            }
-            binmode(PIPE_TO_LAME);
+		exec( $lamecmd, @lameargs, '-', $destfilename );
+		die("exec() failed: $!\n"); # Should never get here
+	    }
 
-            open my $SAVEOUT, ">&", STDOUT;
-            open STDOUT, ">&", PIPE_TO_LAME;
-            binmode(STDOUT);
-            select(STDOUT);
-            $| = 1;
+	    close PIPE_FROM_FLAC;
 
-            # Convert the file
-            my $exit_value = system( $flaccmd, @flacargs, $srcfilename );
-            open STDOUT, ">&", $SAVEOUT;
+	    # We could use signals here and implement a timeout
 
+	    # Reap the decoder
+	    waitpid($flac_pid, 0);
+	    my $flac_exit = $?;
+	    $::Options{debug}
+	        && msg("Exit value from flac command: $flac_exit\n");
+
+	    # Reap the encoder
+	    waitpid($lame_pid, 0);
+	    my $lame_exit = $?;
             $::Options{debug}
-                && msg("Exit value from flac command: $exit_value\n");
+                && msg("Exit value from lame command: $lame_exit\n");
 
-            if ($exit_value) {
+	    if ($flac_exit || $lame_exit) {
+		if ($flac_exit) {
+		    msg("$flaccmd failed with exit code $flac_exit\n")
+		}
 
-                msg("$flaccmd failed with exit code $exit_value\n");
+		if ($lame_exit) {
+		    msg("$lamecmd failed with exit code $lame_exit\n");
+		}
 
                 # delete the destfile if it exists
                 unlink $destfilename;
 
                 # should check exit status of this command
 
-                exit($exit_value);
-            }
+                exit(-1);
+	    }
 
             # the destfile now exists!
             $pflags{exists} = 1;
@@ -592,9 +608,9 @@ sub fixUpTrackNumber {
     return $trackNum;
 }
 
-sub pipe_to_fork {
+sub pipe_from_fork {
     my $parent = shift;
-    pipe my $child, $parent or die;
+    pipe $parent, my $child or die;
     my $pid = fork();
     die "fork() failed: $!" unless defined $pid;
     if ($pid) {
@@ -602,7 +618,7 @@ sub pipe_to_fork {
     }
     else {
         close $parent;
-        open( STDIN, "<&=" . fileno($child) ) or die;
+        open( STDOUT, ">&=" . fileno($child)) or die;
     }
     $pid;
 }
