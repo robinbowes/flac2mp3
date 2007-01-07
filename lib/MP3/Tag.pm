@@ -38,7 +38,7 @@ use MP3::Tag::ParseData;
 use MP3::Tag::LastResort;
 
 use vars qw/$VERSION @ISA/;
-$VERSION="0.9708";
+$VERSION="0.9709";
 @ISA = qw( MP3::Tag::User MP3::Tag::Site MP3::Tag::Vendor
 	   MP3::Tag::Implemenation ); # Make overridable
 *config = \%MP3::Tag::Implemenation::config;
@@ -73,8 +73,11 @@ use vars qw/%config/;
 	    default_language		  => ['XXX'],
 	    default_descr_c		  => [''],
 	    person_frames		  => [qw{ TEXT TCOM TXXX[TPE1] TPE1
-						 TPE3 TOPE TOLY TMCL TIPL TENC
-						 TXXX[person-file-by] }],
+						  TPE3 TOPE TOLY TMCL TIPL TENC
+						  TXXX[person-file-by] }],
+	    id3v2_frames_autofill	  => [qw{ MCDI 1 TXXX[cddb_id] 0
+						  TXXX[cdindex_id] 0 }],
+	    local_cfg_file		  => ['~/.mp3tagprc'],
 	  );
 {
   my %e;
@@ -455,6 +458,10 @@ filename) from which the value is taken.
 
 access the corresponding fields returned by parse() method of CDDB_File.
 
+=item cddb_id(), cdindex_id()
+
+access the corresponding methods of C<ID3v2>, C<Inf> or C<CDDB_File>.
+
 =cut
 
 my %ignore_0length = qw(ID3v1 1 CDDB_File 1 Inf 1);
@@ -466,8 +473,10 @@ sub auto_field($;$) {
     my $parts = $self->get_config($elt) || $self->get_config('autoinfo');
     $self->get_tags;
 
+    my $do_can = ($elt =~ /^cd\w+_id$/);
     foreach my $part (@$parts) {
 	next unless exists $self->{$part};
+	next if $do_can and not $self->{$part}->can($elt);
 	next unless defined (my $out = $self->{$part}->$elt());
 	# Ignore 0-length answers from ID3v1, CDDB_File, and Inf
 	next if not length $out and $ignore_0length{$part}; # These return ''
@@ -486,6 +495,14 @@ for my $elt ( qw( title track artist album comment year genre ) ) {
   }
 }
 
+for my $elt ( qw( cddb_id cdindex_id ) ) {
+  no strict 'refs';
+  *$elt = sub (;$) {
+    my $self = shift;
+    return $self->auto_field($elt, @_);
+  }
+}
+
 for my $elt ( qw( comment_collection comment_track title_track artist_collection ) ) {
   no strict 'refs';
   my ($tr) = ($elt =~ /^(\w+)_/);
@@ -498,6 +515,19 @@ for my $elt ( qw( comment_collection comment_track title_track artist_collection
     return unless defined $v;
     my $translate = ($self->get_config("translate_$tr") || [])->[0] || sub {$_[1]};
     return &$translate( $self, $v );
+  }
+}
+
+for my $elt ( qw(  ) ) {	# Unfinished...
+  no strict 'refs';
+  *$elt = sub (;$) {
+    my $self = shift;
+    local $self->{__proxy}[0] = $self unless $self->{__proxy}[0] or $ENV{MP3TAG_TEST_WEAKEN};
+    $self->get_tags;
+    return unless exists $self->{CDDB_File};
+    my $v = $self->{CDDB_File}->$elt();
+    return unless defined $v;
+    $v;
   }
 }
 
@@ -809,6 +839,24 @@ C<MP3TAG_ENCODE_V1_DEFAULT> or C<MP3TAG_ENCODE_DEFAULT>; if not
 present, from the value for C<decode_encoding_v1>; similarly for
 C<encode_encoding_files>.
 
+=item id3v2_frames_autofill
+
+Hash of suggested ID3v2 frames to autogenerate basing on extra information
+available; keys are frame descriptors (such as C<TXXX[cddb_id]>), values
+indicate whether ID3v2 tag should be created if it was not present.
+
+This variable is inspected by the method C<id3v2_frames_autofill>,
+which is not called automatically when the tag is accessed, but may be called
+by scripts using the module.
+
+The default is to force creation of tag for C<MCDI> frame, and do not
+force creation for C<TXXX[cddb_id]> and C<TXXX[cdindex_id]>.
+
+=item local_cfg_file
+
+Name of configuration file read at startup by the method parse_cfg(); is
+C<~>-substituted; defaults to F<~/.mp3tagprc>.
+
 =item *
 
 Later there will be probably more things to configure.
@@ -836,7 +884,8 @@ sub config {
 		   encode_encoding_files encode_encoding_v1
 		   decode_encoding_v1 decode_encoding_v2
 		   decode_encoding_filename decode_encoding_files
-		   decode_encoding_inf decode_encoding_cddb_file );
+		   decode_encoding_inf decode_encoding_cddb_file
+		   id3v2_frames_autofill local_cfg_file);
     my @tr = map "translate_$_", qw( title track artist album comment
 				     year genre comment_collection
 				     comment_track title_track
@@ -1189,6 +1238,68 @@ sub normalize_person ($$) {
   return &$tr($self, shift);
 }
 
+
+=item id3v2_frames_autofill
+
+  $mp3->id3v2_frames_autofill($force);
+
+Generates missing tags from the list specified in C<id3v2_frames_autofill>
+configuration variable.  The tags should be from a short list this method
+knows how to deal with:
+
+  MCDI:		filled from file audio_cd.toc in directory of the audio file
+			[Create this file with
+			  readcd -fulltoc dev=0,1,0 -f=audio_cd >& nul
+			 modifying the dev (and redirection per your shell). ]
+  TXXX[cddb_id]
+  TXXX[cdindex_id]:	filled from the result of the corresponding method
+				(which may extract from .inf or cddb files).
+
+Existing frames are not modified unless $force option is specified; when
+$force is true, ID3v2 tag will be created even if it was not present.
+
+=cut
+
+sub id3v2_frames_autofill ($$) {
+  my ($self, $forceframe) = (shift, shift);
+  my %force = @{$self->get_config('id3v2_frames_autofill')};
+  $self->get_tags;
+  unless ($self->{ID3v2} or $forceframe) {	# first run: force ID3v2?
+    for my $tag (keys %force) {
+      next unless $force{$tag};
+      my $v;
+      $v = $self->$1 or next if $tag =~ /^TXXX\[(cd(?:db|index)_id)\]$/;
+      if ($tag eq 'MCDI') {
+	my $file = $self->interpolate('%D/audio_cd.toc');
+	$v = -e $file;
+      }
+      $forceframe = 1, last if $v
+    }
+  }
+  for my $tag (keys %force) {
+    next if $self->have_id3v2_frame_by_descr($tag) and not $forceframe;
+    next unless $force{$tag} or $self->{ID3v2} or $forceframe;
+    my $v;
+    $v = $self->$1 or next if $tag =~ /^TXXX\[(cd(?:db|index)_id)\]$/;
+    if ($tag eq 'MCDI') {
+      my $file = $self->interpolate('%D/audio_cd.toc');
+      next unless -e $file;
+      warn(<<EOW), next unless $self->track;
+Could deduce MCDI info, but per id3v2.4 specs, must know the track number!
+EOW
+      eval {
+	open F, "< $file" or die "Can't open `$file' for read: $!";
+	binmode F or die "Can't binmode `$file' for read: $!";
+	local $/;
+	$v = <F>;
+	CORE::close F or die "Can't close `$file' for read: $!";
+      } or warn($@), next;
+    }
+    $self->select_id3v2_frame_by_descr($tag, $v), next if defined $v;
+    die "id3v2_frames_autofill(): do not know how to create frame `$tag'";
+  }
+}
+
 =item interpolate
 
   $string = $mp3->interpolate($pattern)
@@ -1256,7 +1367,8 @@ frames).
 
 Strings C<aC>, C<tT>, C<cC>, C<cT> are replaced by the collection artist,
 track title, collection comment, and track comment as obtained from
-CDDB_File.
+CDDB_File.  Strings C<iC>, C<iI> are replaced by the CDDB and CDIndex
+ids as obtained from CDDB_File or Inf.
 
 =item *
 
@@ -1435,6 +1547,8 @@ my %trans = qw(	t	title
 		tT	title_track
 		cC	comment_collection
 		cT	comment_track
+		iD	cddb_id
+		iI	cdindex_id
 
 		v	mpeg_version
 		L	mpeg_layer_roman
@@ -1521,8 +1635,8 @@ sub _interpolate ($$;$$) {
 	} elsif ($what eq '{' and $_[1] =~ s/^U(\d+)}//) {	# User data
 	    next if $skip;
 	    $str = $self->get_user($1);
-	} elsif ($what eq '{' and $_[1] =~ s/^(aC|tT|c[TC]|[mMS]L|SML)}//) {
-	  # CDDB or leftover times
+	} elsif ($what eq '{' and $_[1] =~ s/^(aC|tT|c[TC]|[mMS]L|SML|i[DI])}//) {
+	  # CDDB, IDs, or leftover times
 	    next if $skip;
 	    my $meth = $trans{$1};
 	    $str = $self->$meth();
@@ -1835,7 +1949,7 @@ sub _parse_rex_microinterpolate {	# $self->idem($code, $groups, $ecount)
     my ($self, $code, $groups) = (shift, shift, shift);
     return '%' if $code eq '%';
     # In these two, allow setting to '', and to 123/789 too...
-    push(@$groups, $code), return '((?<!\d)\d{1,2}(?:\d?/\d{1,3})?(?!\d)|\A\Z)' if $code eq 'n';
+    push(@$groups, $code), return '((?<!\d)\d{1,3}(?:/\d{1,3})?(?!\d)|\A\Z)' if $code eq 'n';
     (push @$groups, $code), return '((?<!\d)[12]\d{3}(?:(?:--|[-:/T\0,])\d(?:|\d|\d\d\d))*(?!\d)|\A\Z)'
 	if $code eq 'y' and ($self->get_config('year_is_timestamp'))->[0];
     (push @$groups, $code), return '((?<!\d)[12]\d{3}(?!\d)|\A\Z)'
@@ -2376,6 +2490,42 @@ sub DESTROY {
     }
 }
 
+sub parse_cfg_line ($$$) {
+  my ($self, $line, $data) = (shift,shift,shift);
+  return if $line =~ /^\s*(#|$)/;
+  die "Unrecognized configuration file line: <<<$line>>>"
+    unless $line =~ /^\s*(\w+)\s*=\s*(.*?)\s*$/;
+  push @{$data->{$1}}, $2;
+}
+
+=item C<parse_cfg( [$filename] )>
+
+Reads configuration information from the specified file (defaults to
+the value of configuration variable C<local_cfg_file>, which is
+C<~>-substituted).  Empty lines and lines starting with C<#> are ignored.
+The remaining lines should have format C<varname=value>; leading
+and trailing whitespace is stripped; there may be several lines with the same
+C<varname>; this sets list-valued variables.
+
+=cut
+
+sub parse_cfg ($;$) {
+  my ($self, $file) = (shift,shift);
+  $file = ($self->get_config('local_cfg_file'))->[0] unless defined $file;
+  return unless defined $file;
+  $file =~ s,^~(?=[/\\]),$ENV{HOME}, if $ENV{HOME};
+  return unless -e $file;
+  open F, "< $file" or die "Can't open `$file' for read: $!";
+  my $data = {};
+  while (defined (my $l = <F>)) {
+    $self->parse_cfg_line($l, $data);
+  }
+  CORE::close F or die "Can't close `$file' for read: $!";
+  for my $k (keys %$data) {
+    $self->config($k, @{$data->{$k}});
+  }
+}
+
 my @parents = qw(User Site Vendor);
 
 @MP3::Tag::User::ISA = qw( MP3::Tag::Site MP3::Tag::Vendor
@@ -2391,6 +2541,7 @@ sub load_parents {
   return;
 }
 load_parents() unless $ENV{MP3TAG_SKIP_LOCAL};
+MP3::Tag->parse_cfg() unless $ENV{MP3TAG_SKIP_LOCAL};
 
 1;
 
@@ -2398,7 +2549,8 @@ load_parents() unless $ENV{MP3TAG_SKIP_LOCAL};
 
 =head1 ENVIRONMENT
 
-Some defaults for the operation of this script are set from
+Some defaults for the operation of this module (and/or scripts distributed
+with this module) are set from
 environment.  Assumed encodings (0 or encoding name): for read access:
 
   MP3TAG_DECODE_V1_DEFAULT		MP3TAG_DECODE_V2_DEFAULT
@@ -2408,6 +2560,8 @@ environment.  Assumed encodings (0 or encoding name): for read access:
 for write access:
 
   MP3TAG_ENCODE_V1_DEFAULT		MP3TAG_ENCODE_FILES_DEFAULT
+
+(if not set, default to corresponding C<DECODE> options).
 
 Defaults for the above:
 
@@ -2420,7 +2574,30 @@ specific variables.
 These variables set default configuration settings for C<MP3::Tag>;
 the values are read during the load time of the module.  After load,
 one can use config()/get_config() methods to change/access these
-settings.
+settings.  See C<encode_encoding_*> and C<encode_decoding_*> in
+documentation of L<config|config> method.  (Note that C<FILES> variant
+govern file read/written in non-binary mode by L<MP3/ParseData> module,
+as well as reading of control files of some scripts using this module, such as
+L<typeset_audio_dir>.)
+
+=over
+
+=item B<EXAMPLE>
+
+Assume that locally present CDDB files and F<.inf> files
+are in encoding C<cp1251> (this is not supported by "standard", but since
+the standard supports only a handful of languages, this is widely used anyway),
+and that one wants C<ID3v1> fields to be in the same encoding, but C<ID3v2>
+have an honest (Unicode, if needed) encoding.  Then set
+
+   MP3TAG_DECODE_INF_DEFAULT=cp1251
+   MP3TAG_DECODE_CDDB_FILE_DEFAULT=cp1251
+   MP3TAG_DECODE_V1_DEFAULT=cp1251
+
+Since C<MP3TAG_DECODE_V1_DEFAULT> implies C<MP3TAG_ENCODE_V1_DEFAULT>,
+you will get the desired effect both for read and write of MP3 tags.
+
+=back
 
 Additionally, the following (unsupported) variables are currently
 recognized by ID3v2 code:
@@ -2442,15 +2619,18 @@ choices.  A lot of effort went into making these choices customizable,
 by setting global or per-object configuration variables.
 
 A certain degree of customization of global configuration variables is
-available via the environment variables.  To make customization as
-flexible as possible, I<ALL> aspects of operation of C<MP3::Tag> are
-subject to local override.  Three customization modules
+available via the environment variables.  Moreover, at startup the local
+customization file F<~/.mp3tagprc> is read, and defaults are set accordingly.
+
+In addition, to make customization as flexible as possible, I<ALL> aspects
+of operation of C<MP3::Tag> are subject to local override.  Three customization
+modules
 
   MP3::Tag::User	MP3::Tag::Site		MP3::Tag::Vendor
 
 are attempted to be loaded if present.  Only the first module (of
-those present) is loaded directly; to ensure that the whole hierarchy
-is loaded, the first thing a customization module should do is to call
+those present) is loaded directly; if sequential load is desirable,
+the first thing a customization module should do is to call
 
   MP3::Tag->load_parents()
 
@@ -2478,6 +2658,16 @@ and install the (supplied, in the F<examples/modules>) module
 F<Music_Translate_Fields.pm> which enables normalization of person
 names (to a long or a short form), and of music piece names to
 canonical forms.
+
+To simplify debugging of local customization, it may be switched off
+completely by setting MP3TAG_SKIP_LOCAL to TRUE (in environment).
+
+For example, putting
+
+  id3v23_unsync	= 0
+
+into F<~/.mp3tagprc> will produce broken ID3v2 tags (but those required
+by ITunes).
 
 =head1 EXAMPLE SCRIPTS
 
@@ -2567,6 +2757,44 @@ For example, interpolate C<%{TXXX[TPE1]|TPE1}> or C<%{TXXX[TPE1]|a}> -
 this will use the frame C<TXXX> with identifier C<TPE1> if present, if not,
 it will use the frame C<TPE1> (the first example), or will try to get I<artist>
 by other means (including C<TPE1> frame) (the second example).
+
+=head1 FILES
+
+There are many files with special meaning to this module and its dependent
+modules.
+
+=over 4
+
+=item F<*.inf>
+
+Files with extension F<.inf> and the same basename as the audio file are
+read by module C<MP3::Tag::Inf>, and the extracted data is merged into the
+information flow according to configuration variable C<autoinfo>.
+
+It is assumed that these files are compatible in format to the files written
+by the program F<cdda2wav>.
+
+=item F<audio.cddb> F<cddb.out> F<cddb.in>
+
+in the same directory as the audio file are read by module
+C<MP3::Tag::CDDB_File>, and the extracted data is merged into the
+information flow according to configuration variable C<autoinfo>.
+
+(In fact, the list may be customized by configuration variable C<cddb_files>.)
+
+=item F<audio_cd.toc>
+
+in the same directory as the audio file may be read by the method
+id3v2_frames_autofill() (should be called explicitly) to fill the C<MCDI>
+frame.  Depends on contents of configuration variable C<id3v2_frames_autofill>.
+
+=item F<~/.mp3tagprc>
+
+By default, this file is read on startup (may be customized by overriding
+the method parse_cfg()).  By default, the name of the file is in the
+configuration variable C<local_cfg_file>.
+
+=back
 
 =head1 SEE ALSO
 
