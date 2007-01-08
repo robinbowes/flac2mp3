@@ -24,7 +24,7 @@ use File::Find::Rule;
 use File::Path;
 use File::Spec;
 use File::stat;
-use File::Temp;
+use File::Temp qw/ cleanup /;
 use File::Which;
 use Getopt::Long;
 use MP3::Tag;
@@ -459,8 +459,9 @@ sub convert_file {
             my $quotedsrc  = $srcfilename;
             my $quoteddest = $destfilename;
 
-            # Use a temp file and rename if the conversion command
-            # completes sucessfully.
+            # Transcode to a temp file in the destdir.
+            # Rename the file if the conversion completes sucessfully
+            # This avoids leaving incomplete files in the destdir
             my ( $unused1, $destdir, $unused2 ) = fileparse($destfilename);
             my $tmpfh = new File::Temp(
                 UNLINK => 1,
@@ -468,6 +469,7 @@ sub convert_file {
                 SUFFIX => '.tmp'
             );
             my $tmpfilename    = $tmpfh->filename;
+            
             my $convert_command = "$flaccmd @flacargs \"$quotedsrc\""
                 . "| $lamecmd @lameargs - \"$tmpfilename\"";
 
@@ -492,7 +494,8 @@ sub convert_file {
 
             # If we get here, assume the conversion has succeeded
             $tmpfh->unlink_on_destroy(0);
-            croak "Failed to rename '$tmpfilename' to '$destfilename'"
+            $tmpfh->close;
+            croak "Failed to rename '$tmpfilename' to '$destfilename' $!"
                 unless rename( $tmpfilename, $destfilename );
 
             # the destfile now exists!
