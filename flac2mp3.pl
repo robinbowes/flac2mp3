@@ -24,6 +24,7 @@ use File::Find::Rule;
 use File::Path;
 use File::Spec;
 use File::stat;
+use File::Temp;
 use File::Which;
 use Getopt::Long;
 use MP3::Tag;
@@ -455,10 +456,20 @@ sub convert_file {
 
            # Building command used to convert file (tagging done afterwards)
            # Needs some work on quoting filenames containing special characters
-            my $quotedsrc       = $srcfilename;
-            my $quoteddest      = $destfilename;
+            my $quotedsrc  = $srcfilename;
+            my $quoteddest = $destfilename;
+
+            # Use a temp file and rename if the conversion command
+            # completes sucessfully.
+            my ( $unused1, $destdir, $unused2 ) = fileparse($destfilename);
+            my $tmpfh = new File::Temp(
+                UNLINK => 1,
+                DIR    => $destdir,
+                SUFFIX => '.tmp'
+            );
+            my $tmpfilename    = $tmpfh->filename;
             my $convert_command = "$flaccmd @flacargs \"$quotedsrc\""
-                . "| $lamecmd @lameargs - \"$quoteddest\"";
+                . "| $lamecmd @lameargs - \"$tmpfilename\"";
 
             $::Options{debug} && msg("$convert_command\n");
 
@@ -478,6 +489,11 @@ sub convert_file {
 
                 exit($exit_value);
             }
+
+            # If we get here, assume the conversion has succeeded
+            $tmpfh->unlink_on_destroy(0);
+            croak "Failed to rename '$tmpfilename' to '$destfilename'"
+                unless rename( $tmpfilename, $destfilename );
 
             # the destfile now exists!
             $pflags{exists} = 1;
