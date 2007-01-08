@@ -451,58 +451,33 @@ sub convert_file {
             )
             )
         {
-	    # Start the decoder with a pipe to the parent for output 
-	    my $PIPE_FROM_FLAC;
-	    defined( my $flac_pid = pipe_from_fork( \*PIPE_FROM_FLAC ) )
-		or die("fork() failed: $!\n");
-	    if ( !$flac_pid ) {
-		exec( $flaccmd, @flacargs, $srcfilename );
-		die("exec() failed: $!\n"); # Should never get here
-	    }
 
-	    # Start the encoder using the new pipe as input
-	    defined( my $lame_pid = fork() )
-		or die("fork() failed: $!\n");
-	    if ( !$lame_pid ) {
-		open( STDIN, "<&=" . fileno(PIPE_FROM_FLAC) )
-		    or die("open() failed: $!\n");
+            # Building command used to convert file (tagging done afterwards)
+            # Needs some work on quoting filenames containing special characters
+            my $quotedsrc       = $srcfilename;
+            my $quoteddest      = $destfilename;
+            my $convert_command =
+                "$flaccmd @flacargs \"$quotedsrc\""
+              . "| $lamecmd @lameargs - \"$quoteddest\"";
 
-		exec( $lamecmd, @lameargs, '-', $destfilename );
-		die("exec() failed: $!\n"); # Should never get here
-	    }
+            $::Options{debug} && msg("$convert_command\n");
 
-	    close PIPE_FROM_FLAC;
+            # Convert the file
+            my $exit_value = system($convert_command);
 
-	    # We could use signals here and implement a timeout
-
-	    # Reap the decoder
-	    waitpid($flac_pid, 0);
-	    my $flac_exit = $?;
-	    $::Options{debug}
-	        && msg("Exit value from flac command: $flac_exit\n");
-
-	    # Reap the encoder
-	    waitpid($lame_pid, 0);
-	    my $lame_exit = $?;
             $::Options{debug}
-                && msg("Exit value from lame command: $lame_exit\n");
+              && msg("Exit value from convert command: $exit_value\n");
 
-	    if ($flac_exit || $lame_exit) {
-		if ($flac_exit) {
-		    msg("$flaccmd failed with exit code $flac_exit\n")
-		}
-
-		if ($lame_exit) {
-		    msg("$lamecmd failed with exit code $lame_exit\n");
-		}
+            if ($exit_value) {
+                msg("$convert_command failed with exit code $exit_value\n");
 
                 # delete the destfile if it exists
                 unlink $destfilename;
 
                 # should check exit status of this command
 
-                exit(-1);
-	    }
+                exit($exit_value);
+            }
 
             # the destfile now exists!
             $pflags{exists} = 1;
@@ -606,21 +581,6 @@ sub fixUpTrackNumber {
         }
     }
     return $trackNum;
-}
-
-sub pipe_from_fork {
-    my $parent = shift;
-    pipe $parent, my $child or die;
-    my $pid = fork();
-    die "fork() failed: $!" unless defined $pid;
-    if ($pid) {
-        close $child;
-    }
-    else {
-        close $parent;
-        open( STDOUT, ">&=" . fileno($child)) or die;
-    }
-    $pid;
 }
 
 # vim:set softtabstop=4:
