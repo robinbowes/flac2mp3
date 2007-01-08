@@ -148,12 +148,13 @@ showusage()
 # Check flac and lame are found
 # First see if the specified command is executable.
 # If not, look in path
-foreach my $cmd ($flaccmd, $lamecmd) {
+foreach my $cmd ( $flaccmd, $lamecmd ) {
     my $cmdpath;
     if ( -x $cmd ) {
-   	$cmdpath = $cmd;
-    } else {
-    	$cmdpath = which($cmd);
+        $cmdpath = $cmd;
+    }
+    else {
+        $cmdpath = which($cmd);
     }
     croak "$cmd not found" unless $cmdpath;
     $Options{info} && print "Using $cmd from: $cmdpath\n";
@@ -452,13 +453,12 @@ sub convert_file {
             )
         {
 
-            # Building command used to convert file (tagging done afterwards)
-            # Needs some work on quoting filenames containing special characters
+           # Building command used to convert file (tagging done afterwards)
+           # Needs some work on quoting filenames containing special characters
             my $quotedsrc       = $srcfilename;
             my $quoteddest      = $destfilename;
-            my $convert_command =
-                "$flaccmd @flacargs \"$quotedsrc\""
-              . "| $lamecmd @lameargs - \"$quoteddest\"";
+            my $convert_command = "$flaccmd @flacargs \"$quotedsrc\""
+                . "| $lamecmd @lameargs - \"$quoteddest\"";
 
             $::Options{debug} && msg("$convert_command\n");
 
@@ -466,7 +466,7 @@ sub convert_file {
             my $exit_value = system($convert_command);
 
             $::Options{debug}
-              && msg("Exit value from convert command: $exit_value\n");
+                && msg("Exit value from convert command: $exit_value\n");
 
             if ($exit_value) {
                 msg("$convert_command failed with exit code $exit_value\n");
