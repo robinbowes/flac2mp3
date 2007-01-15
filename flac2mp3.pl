@@ -36,6 +36,7 @@ use Scalar::Util qw/ looks_like_number /;
 #
 # On Windows:
 #  * If you specify a path, you must include the ".exe" extension
+#  * Long filenames are OK, e.g. c:/Program Files/flac/flac.exe
 #  * You can use "/" or "\\" as path separator, e.g.:
 #      c:/windows/system32/flac.exe
 #    or
@@ -470,8 +471,8 @@ sub convert_file {
             );
             my $tmpfilename    = $tmpfh->filename;
             
-            my $convert_command = "$flaccmd @flacargs \"$quotedsrc\""
-                . "| $lamecmd @lameargs - \"$tmpfilename\"";
+            my $convert_command = "\"$flaccmd\" @flacargs \"$quotedsrc\""
+                . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
 
             $::Options{debug} && msg("$convert_command\n");
 
