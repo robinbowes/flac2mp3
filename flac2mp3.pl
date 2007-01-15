@@ -37,12 +37,15 @@ use Scalar::Util qw/ looks_like_number /;
 # On Windows:
 #  * If you specify a path, you must include the ".exe" extension
 #  * Long filenames are OK, e.g. c:/Program Files/flac/flac.exe
-#  * You can use "/" or "\\" as path separator, e.g.:
+#  * You can use "/" or "\\" or even "\" as path separator, e.g.:
+#      c:\windows\system32\flac.exe
+#    or
 #      c:/windows/system32/flac.exe
 #    or
 #      c:\\windows\\system32\\flac.exe
-our $flaccmd = "flac";
-our $lamecmd = "lame";
+our $flaccmd = 'flac';
+our $lamecmd = 'lame';
+
 
 # Modify lame options if required
 our @lameargs = qw (
