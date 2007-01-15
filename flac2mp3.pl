@@ -1,8 +1,6 @@
 #!/bin/env perl
 #
-# flac2mp3.pl
-#
-# Version 0.2.9
+# $id$
 #
 # Converts a directory full of flac files into a corresponding
 # directory of mp3 files
@@ -45,7 +43,6 @@ use Scalar::Util qw/ looks_like_number /;
 #      c:\\windows\\system32\\flac.exe
 our $flaccmd = 'flac';
 our $lamecmd = 'lame';
-
 
 # Modify lame options if required
 our @lameargs = qw (
@@ -472,8 +469,8 @@ sub convert_file {
                 DIR    => $destdir,
                 SUFFIX => '.tmp'
             );
-            my $tmpfilename    = $tmpfh->filename;
-            
+            my $tmpfilename = $tmpfh->filename;
+
             my $convert_command = "\"$flaccmd\" @flacargs \"$quotedsrc\""
                 . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
 
