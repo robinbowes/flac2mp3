@@ -1,6 +1,6 @@
 #!/bin/env perl
 #
-# $ID$
+# $Id$
 #
 # Converts a directory full of flac files into a corresponding
 # directory of mp3 files
