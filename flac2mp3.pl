@@ -46,6 +46,7 @@ our $lamecmd = 'lame';
 
 # Modify lame options if required
 our @lameargs = qw (
+  --noreplaygain
   --preset standard
   --quiet
 );
