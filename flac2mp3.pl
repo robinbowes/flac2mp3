@@ -46,23 +46,25 @@ our $lamecmd = 'lame';
 
 # Modify lame options if required
 our @lameargs = qw (
-    --preset standard
-    --quiet
+  --preset standard
+  --quiet
 );
 
 # -------- User-config options end here ---------
 
 our @flacargs = qw (
-    --decode
-    --stdout
-    --silent
+  --decode
+  --stdout
+  --silent
 );
 
 # hash mapping FLAC tag names to MP3 frames
 our %MP3frames = (
     'ALBUM'                   => 'TALB',
+    'ALBUMARTIST'             => 'TPE2',
     'ARTIST'                  => 'TPE1',
     'COMMENT'                 => 'COMM',
+    'COMPILATION'             => 'TCMP',
     'COMPOSER'                => 'TCOM',
     'CONDUCTOR'               => 'TPE3',
     'DATE'                    => 'TYER',
@@ -113,8 +115,8 @@ our %MP3frametexts = (
 # In this case, we want to use the "Description" to check if this is the
 # correct frame.
 # We always grab the "Text" for the frame data.
-our %Complex_Frame_Keys
-    = ( 'COMM' => 'Description', 'TXXX' => 'Description', 'UFID' => '_Data' );
+our %Complex_Frame_Keys =
+  ( 'COMM' => 'Description', 'TXXX' => 'Description', 'UFID' => '_Data' );
 
 our %Options;
 
@@ -143,7 +145,7 @@ my ( $srcdirroot, $destdirroot ) = @ARGV;
 showversion() if ( $Options{version} );
 showhelp()    if ( $Options{help} );
 showusage()
-    if ( !defined $srcdirroot
+  if ( !defined $srcdirroot
     || !defined $destdirroot
     || $Options{usage} );
 
@@ -167,7 +169,7 @@ $srcdirroot  = File::Spec->rel2abs($srcdirroot);
 $destdirroot = File::Spec->rel2abs($destdirroot);
 
 die "Source directory not found: $srcdirroot\n"
-    unless -d $srcdirroot;
+  unless -d $srcdirroot;
 
 # count all flac files in srcdir
 # Display a progress report after each file, e.g. Processed 367/4394 files
@@ -182,9 +184,8 @@ $::Options{info} && msg("Processing directory: $srcdirroot\n");
 
 # Now look for files in the current directory
 # (following symlinks)
-my @flac_files
-    = File::Find::Rule->file()->extras( { follow => 1 } )->name('*.flac')
-    ->in('.');
+my @flac_files =
+  File::Find::Rule->file()->extras( { follow => 1 } )->name('*.flac')->in('.');
 
 $::Options{debug} && print Dumper(@flac_files) . "\n";
 
@@ -202,15 +203,15 @@ if ( $::Options{info} ) {
 $::Options{info} && msg("done.\n");
 
 # Get directories from destdirroot and put in an array
-my ( $destroot_volume, $destroot_directories, $destroot_file )
-    = File::Spec->splitpath( $destdirroot, 1 );
+my ( $destroot_volume, $destroot_directories, $destroot_file ) =
+  File::Spec->splitpath( $destdirroot, 1 );
 my @destroot_dirs = File::Spec->splitdir($destroot_directories);
 
 foreach my $srcfilename (@flac_files) {
 
     # Get directories in src file and put in an array
-    my ( $src_volume, $src_directories, $src_file )
-        = File::Spec->splitpath($srcfilename);
+    my ( $src_volume, $src_directories, $src_file ) =
+      File::Spec->splitpath($srcfilename);
     my @src_dirs = File::Spec->splitdir($src_directories);
 
     # Join together dest_root and src_dirs
@@ -225,15 +226,14 @@ foreach my $srcfilename (@flac_files) {
     my ( $fbase, $fdir, $fext ) = fileparse( $src_file, qr{\.flac} );
 
     # Now join it all together to get the complete path of the dest_file
-    my $dest_filename = File::Spec->catpath( $destroot_volume, $dest_directory,
-        $fbase . '.mp3' );
-    my $dest_dir
-        = File::Spec->catpath( $destroot_volume, $dest_directory, '' );
+    my $dest_filename =
+      File::Spec->catpath( $destroot_volume, $dest_directory, $fbase . '.mp3' );
+    my $dest_dir = File::Spec->catpath( $destroot_volume, $dest_directory, '' );
 
     # Create the destination directory if it doesn't already exist
     mkpath($dest_dir)
-        or die "Can't create directory $dest_dir\n"
-        unless -d $dest_dir;
+      or die "Can't create directory $dest_dir\n"
+      unless -d $dest_dir;
 
     convert_file( $srcfilename, $dest_filename );
 }
@@ -291,8 +291,8 @@ sub convert_file {
 
     # Fix up TRACKNUMBER
     if ( $changedframes{'TRACKNUMBER'} ) {
-        my $fixeduptracknumber
-            = fixUpTrackNumber( $changedframes{'TRACKNUMBER'}, $srcfilename );
+        my $fixeduptracknumber =
+          fixUpTrackNumber( $changedframes{'TRACKNUMBER'}, $srcfilename );
         if ( $fixeduptracknumber ne $changedframes{'TRACKNUMBER'} ) {
             $changedframes{'TRACKNUMBER'} = $fixeduptracknumber;
         }
@@ -328,11 +328,11 @@ sub convert_file {
             print("destfile mtime: $destmodtime\n");
         }
 
-       # General approach:
-       #   Don't process the file if srcfile timestamp is earlier than destfile
-       #   or tags are different
-       #
-       # First check timestamps and set flag
+        # General approach:
+        #   Don't process the file if srcfile timestamp is earlier than destfile
+        #   or tags are different
+        #
+        # First check timestamps and set flag
         if ( $srcmodtime <= $destmodtime ) {
             $pflags{timestamp} = 0;
         }
@@ -362,8 +362,8 @@ sub convert_file {
 
                     $::Options{debug} && msg("frame is '$frame'\n");
 
-            # To do: Check the frame is valid
-            # Specifically, make sure the GENRE is one of the standard ID3 tags
+             # To do: Check the frame is valid
+             # Specifically, make sure the GENRE is one of the standard ID3 tags
                     my $method = $MP3frames{$frame};
 
                     $::Options{debug} && msg("method is '$method'\n");
@@ -374,13 +374,13 @@ sub convert_file {
                     #$destframe = '' if ( !defined $destframe );
 
                     $::Options{debug}
-                        && print "values from id3v2 tags:\n"
-                        . Dumper \$tagname, \@info;
+                      && print "values from id3v2 tags:\n" . Dumper \$tagname,
+                      \@info;
 
                     my $dest_text = '';
 
                     # check for complex frame (e.g. Comments)
-                TAGLOOP:
+                  TAGLOOP:
                     foreach my $tag_info (@info) {
                         if ( ref $tag_info ) {
                             my $cfname = $MP3frametexts{$frame};
@@ -397,12 +397,12 @@ sub convert_file {
                     }
 
                     $::Options{debug}
-                        && print "\$dest_text xxx2: " . Dumper $dest_text;
+                      && print "\$dest_text xxx2: " . Dumper $dest_text;
 
                     # Fix up TRACKNUMBER
                     if ( $frame eq "TRACKNUMBER" ) {
-                        my $fixeduptracknumber
-                            = fixUpTrackNumber( $dest_text, $destfilename );
+                        my $fixeduptracknumber =
+                          fixUpTrackNumber( $dest_text, $destfilename );
                         if ( $fixeduptracknumber ne $dest_text ) {
                             $dest_text = $fixeduptracknumber;
                         }
@@ -447,16 +447,18 @@ sub convert_file {
     {
         $::Options{info} && msg("Processing \"$srcfilename\"\n");
 
-        if ($::Options{force}
-            || (!$::Options{tagsonly}
+        if (
+            $::Options{force}
+            || (
+                !$::Options{tagsonly}
                 && ( !$pflags{exists}
                     || ( $pflags{exists} && !$pflags{tags} ) )
             )
-            )
+          )
         {
 
-           # Building command used to convert file (tagging done afterwards)
-           # Needs some work on quoting filenames containing special characters
+            # Building command used to convert file (tagging done afterwards)
+            # Needs some work on quoting filenames containing special characters
             my $quotedsrc  = $srcfilename;
             my $quoteddest = $destfilename;
 
@@ -471,8 +473,9 @@ sub convert_file {
             );
             my $tmpfilename = $tmpfh->filename;
 
-            my $convert_command = "\"$flaccmd\" @flacargs \"$quotedsrc\""
-                . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
+            my $convert_command =
+                "\"$flaccmd\" @flacargs \"$quotedsrc\""
+              . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
 
             $::Options{debug} && msg("$convert_command\n");
 
@@ -480,7 +483,7 @@ sub convert_file {
             my $exit_value = system($convert_command);
 
             $::Options{debug}
-                && msg("Exit value from convert command: $exit_value\n");
+              && msg("Exit value from convert command: $exit_value\n");
 
             if ($exit_value) {
                 msg("$convert_command failed with exit code $exit_value\n");
@@ -497,7 +500,7 @@ sub convert_file {
             $tmpfh->unlink_on_destroy(0);
             $tmpfh->close;
             croak "Failed to rename '$tmpfilename' to '$destfilename' $!"
-                unless rename( $tmpfilename, $destfilename );
+              unless rename( $tmpfilename, $destfilename );
 
             # the destfile now exists!
             $pflags{exists} = 1;
@@ -520,8 +523,8 @@ sub convert_file {
 
                 $::Options{debug} && msg("changedframe is '$frame'\n");
 
-            # To do: Check the frame is valid
-            # Specifically, make sure the GENRE is one of the standard ID3 tags
+             # To do: Check the frame is valid
+             # Specifically, make sure the GENRE is one of the standard ID3 tags
                 my $method = $MP3frames{$frame};
 
                 $::Options{debug} && msg("method is $method\n");
@@ -532,25 +535,25 @@ sub convert_file {
                 # Only add the frame if framestring is not empty
                 if ($framestring) {
                     $::Options{debug}
-                        && msg("Setting $frame = '$framestring'\n");
+                      && msg("Setting $frame = '$framestring'\n");
 
                     # COMM, TXX, and UFID are Complex frames that must be
                     # treated differently.
                     if ( $method eq "COMM" ) {
                         $mp3->{"ID3v2"}
-                            ->add_frame( $method, 'ENG', 'Short Text',
+                          ->add_frame( $method, 'ENG', 'Short Text',
                             $framestring );
                     }
                     elsif ( $method eq "TXXX" ) {
                         my $frametext = $MP3frametexts{$frame};
                         $frametext = $frame if ( !( defined($frametext) ) );
-                        $mp3->{"ID3v2"}->add_frame( $method, 0, $frametext,
-                            $framestring );
+                        $mp3->{"ID3v2"}
+                          ->add_frame( $method, 0, $frametext, $framestring );
                     }
                     elsif ( $method eq 'UFID' ) {
                         my $frametext = $MP3frametexts{$frame};
                         $mp3->{'ID3v2'}
-                            ->add_frame( $method, $framestring, $frametext );
+                          ->add_frame( $method, $framestring, $frametext );
                     }
                     else {
                         $mp3->{"ID3v2"}->add_frame( $method, $framestring );
@@ -562,8 +565,8 @@ sub convert_file {
 
             $mp3->close();
 
-    # should optionally reset the destfile timestamp to the same as the srcfile
-    # utime $srcstat->mtime, $srcstat->mtime, $destfilename;
+     # should optionally reset the destfile timestamp to the same as the srcfile
+     # utime $srcstat->mtime, $srcstat->mtime, $destfilename;
         }
     }
 }
@@ -578,8 +581,8 @@ sub utf8toLatin1 {
 
     # Don't run the substitution on an empty string
     if ($data) {
-        $data
-            =~ s/([\xC0-\xDF])([\x80-\xBF])/chr(ord($1)<<6&0xC0|ord($2)&0x3F)/eg;
+        $data =~
+          s/([\xC0-\xDF])([\x80-\xBF])/chr(ord($1)<<6&0xC0|ord($2)&0x3F)/eg;
         $data =~ s/[\xE2][\x80][\x99]/'/g;
     }
 
