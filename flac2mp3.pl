@@ -275,7 +275,14 @@ sub convert_file {
     # create object to access flac tags
     my $srcfile = Audio::FLAC::Header->new($srcfilename);
 
-    # Get tags from flac file
+    # get info from flac file
+#    my $srcmd5 = $srcfile->info('MD5CHECKSUM');
+#    if (defined $srcmd5) {
+#	print "Checksum is $srcmd5\n";
+#	goto TEMPJUMP01
+#    }
+
+    # get tags from flac file
     my $srcframes = $srcfile->tags();
 
     $::Options{debug} && print "Tags from source file:\n" . Dumper $srcframes;
@@ -307,6 +314,7 @@ sub convert_file {
     # Initialise file processing flags
     my %pflags = (
         exists    => 0,
+	md5	  => 1,
         tags      => 0,
         timestamp => 1
     );
@@ -334,11 +342,11 @@ sub convert_file {
         #   or tags are different
         #
         # First check timestamps and set flag
-        if ( $srcmodtime <= $destmodtime ) {
+	if ( $srcmodtime <= $destmodtime ) {
             $pflags{timestamp} = 0;
         }
 
-        # If the source file os not newer than dest file
+        # If the source file is not newer than dest file
         if ( !$pflags{timestamp} ) {
 
             $Options{debug} && msg("Comparing tags\n");
@@ -569,6 +577,7 @@ sub convert_file {
      # should optionally reset the destfile timestamp to the same as the srcfile
      # utime $srcstat->mtime, $srcstat->mtime, $destfilename;
         }
+    TEMPJUMP01:
     }
 }
 
