@@ -64,6 +64,8 @@ our %MP3frames = (
     'ALBUM'                   => 'TALB',
     'ALBUMARTIST'             => 'TPE2',
     'ARTIST'                  => 'TPE1',
+    'BAND'		      => 'TPE2',
+    'BPM'		      => 'TBPM',
     'COMMENT'                 => 'COMM',
     'COMPILATION'             => 'TCMP',
     'COMPOSER'                => 'TCOM',
@@ -125,8 +127,16 @@ our %Options;
 $SIG{INT} = \&INT_Handler;
 
 GetOptions(
-    \%Options, "quiet!", "tagdiff", "debug!", "tagsonly!", "force!",
-    "usage",   "help",   "version"
+    \%Options,
+    "quiet!",
+    "tagdiff",
+    "debug!",
+    "tagsonly!",
+    "force!",
+    "usage",
+    "md5",
+    "help",
+    "version"
 );
 
 # info flag is the inverse of --quiet
@@ -191,7 +201,7 @@ my @flac_files =
 $::Options{debug} && print Dumper(@flac_files) . "\n";
 
 if ( $::Options{info} ) {
-    my $file_count = @flac_files;    # array in scalr context returns no. items
+    my $file_count = @flac_files;    # array in scalar context returns no. items
     my $files_word = 'file';
     if ( $file_count > 1 ) {
         $files_word .= 's';
@@ -248,6 +258,8 @@ Usage: $0 [--quiet] [--debug] [--tagsonly] [--force] <flacdir> <mp3dir>
     --debug         Enable debugging output. For developers only!
     --tagsonly      Don't do any transcoding - just update tags
     --force         Force transcoding and tag update even if not required
+    --md5	    Use FLAC MD5 signature to determine if audio content
+		    has changed since file was transcoded
     --tagdiff	    Print source/dest tag values if different
 EOT
     exit 0;
@@ -314,7 +326,7 @@ sub convert_file {
     # Initialise file processing flags
     my %pflags = (
         exists    => 0,
-	md5	  => 1,
+	md5	  => $Options{md5},
         tags      => 0,
         timestamp => 1
     );
@@ -345,6 +357,14 @@ sub convert_file {
 	if ( $srcmodtime <= $destmodtime ) {
             $pflags{timestamp} = 0;
         }
+
+	# Check MD5 if option enabled and id3v2 frame found in mp3 file
+#	if ($Options{md5} && $mp3->{ID3v2}) {
+#	    if ($Options{debug}) {
+#		msg "Checking MD5\n";
+#		msg "UFID is: " . Dumper $mp3->{ID3v2}->get_frame('UFID');
+#	    };
+	    
 
         # If the source file is not newer than dest file
         if ( !$pflags{timestamp} ) {
