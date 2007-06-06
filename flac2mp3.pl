@@ -85,6 +85,7 @@ our %MP3frames = (
     'MUSICBRAINZ_SORTNAME'    => 'TXXX',
     'MUSICBRAINZ_TRACKID'     => 'UFID',
     'MUSICBRAINZ_TRMID'       => 'TXXX',
+    'MD5'                     => 'TXXX',
 
     #    'REPLAYGAIN_TRACK_PEAK'   => 'TXXX',
     #    'REPLAYGAIN_TRACK_GAIN'   => 'TXXX',
@@ -94,6 +95,7 @@ our %MP3frames = (
 
 our %MP3frametexts = (
     'COMMENT'                   => 'Short Text',
+    'MD5'                       => 'MD5',
     'MUSICBRAINZ_ALBUMARTISTID' => 'MusicBrainz Album Artist Id',
     'MUSICBRAINZ_ALBUMID'       => 'MusicBrainz Album Id',
     'MUSICBRAINZ_ALBUMSTATUS'   => 'MusicBrainz Album Status',
@@ -127,12 +129,14 @@ our %Options;
 $SIG{INT} = \&INT_Handler;
 
 GetOptions(
-    \%Options, "quiet!", "tagdiff", "debug!",  "tagsonly!", "force!",
-    "usage",   "md5",    "help",    "version", "pretend",
+    \%Options, "quiet!", "tagdiff", "debug!", "tagsonly!", "force!",
+    "usage",   "help",   "version", "pretend",
 );
 
+$::Options{pretend} = $::Options{pretend} || 0;
+
 # info flag is the inverse of --quiet
-$Options{info} = !$Options{quiet};
+$::Options{info} = !$::Options{quiet};
 
 package main;
 
@@ -145,12 +149,12 @@ $| = 1;
 
 my ( $srcdirroot, $destdirroot ) = @ARGV;
 
-showversion() if ( $Options{version} );
-showhelp()    if ( $Options{help} );
+showversion() if ( $::Options{version} );
+showhelp()    if ( $::Options{help} );
 showusage()
     if ( !defined $srcdirroot
     || !defined $destdirroot
-    || $Options{usage} );
+    || $::Options{usage} );
 
 my $pretendString = '';
 $pretendString = '** Pretending ** '
@@ -168,7 +172,7 @@ foreach my $cmd ( $flaccmd, $lamecmd ) {
         $cmdpath = which($cmd);
     }
     croak "$cmd not found" unless $cmdpath;
-    $Options{info} && print "Using $cmd from: $cmdpath\n";
+    $::Options{info} && msg("Using $cmd from: $cmdpath");
 }
 
 # Convert directories to absolute paths
@@ -188,7 +192,7 @@ die "Source directory not found: $srcdirroot\n"
 chdir $srcdirroot;
 
 $::Options{info}
-    && msg( $pretendString . "Processing directory: $srcdirroot\n" );
+    && msg( $pretendString . "Processing directory: $srcdirroot" );
 
 # Now look for files in the current directory
 # (following symlinks)
@@ -196,7 +200,7 @@ my @flac_files
     = File::Find::Rule->file()->extras( { follow => 1 } )->name('*.flac')
     ->in('.');
 
-$::Options{debug} && print Dumper(@flac_files) . "\n";
+$::Options{debug} && msg( Dumper(@flac_files) );
 
 if ( $::Options{info} ) {
     my $file_count = @flac_files;   # array in scalar context returns no. items
@@ -209,7 +213,7 @@ if ( $::Options{info} ) {
 
 @flac_files = sort @flac_files;
 
-$::Options{info} && msg("done.\n");
+$::Options{info} && msg("Sort complete.");
 
 # Get directories from destdirroot and put in an array
 my ( $dstroot_volume, $dstroot_dirpath, $dstroot_file )
@@ -253,8 +257,6 @@ Usage: $0 [--quiet] [--debug] [--tagsonly] [--force] <flacdir> <mp3dir>
     --tagsonly      Don't do any transcoding - just update tags
     --pretend       Don't actually do anything
     --force         Force transcoding and tag update even if not required
-    --md5	    Use FLAC MD5 signature to determine if audio content
-		    has changed since file was transcoded
     --tagdiff	    Print source/dest tag values if different
 EOT
     exit 0;
@@ -262,360 +264,329 @@ EOT
 
 sub msg {
     my $msg = shift;
-    print "$msg";
+    print "$msg\n";
 }
 
 sub convert_file {
     my ( $srcfilename, $dst_dir, $destfilename ) = @_;
 
-    # To do:
-    #   Compare tags even if src and dest file have same timestamp
-    #   Use command-line switches to override default behaviour
-
-    # get srcfile timestamp
-    my $srcstat = stat($srcfilename);
-    my $deststat;
-
-    $::Options{debug} && msg("srcfile: '$srcfilename'\n");
-    $::Options{debug} && msg("destfile: '$destfilename'\n");
+    $::Options{debug} && msg("srcfile: '$srcfilename'");
+    $::Options{debug} && msg("destfile: '$destfilename'");
 
     # create object to access flac tags
     my $srcfile = Audio::FLAC::Header->new($srcfilename);
 
-    # get info from flac file
-    #    my $srcmd5 = $srcfile->info('MD5CHECKSUM');
-    #    if (defined $srcmd5) {
-    #	print "Checksum is $srcmd5\n";
-    #	goto TEMPJUMP01
-    #    }
-
     # get tags from flac file
     my $srcframes = $srcfile->tags();
 
-    $::Options{debug} && print "Tags from source file:\n" . Dumper $srcframes;
+    $::Options{debug} && msg "Tags from source file:\n" . Dumper $srcframes;
 
     # hash to hold tags that will be updated
-    my %changedframes;
+    my %frames_to_update;
 
     # weed out tags not valid in destfile
     foreach my $frame ( keys %$srcframes ) {
         if ( $MP3frames{$frame} ) {
-            $changedframes{$frame} = $srcframes->{$frame};
+            $frames_to_update{$frame} = $srcframes->{$frame};
         }
     }
 
+    # get MD5 checksdum from flac file and add to frames_to_update hash
+    $frames_to_update{'MD5'} = $srcfile->info('MD5CHECKSUM');
+
     # Fix up TRACKNUMBER
-    if ( $changedframes{'TRACKNUMBER'} ) {
+    if ( $frames_to_update{'TRACKNUMBER'} ) {
         my $fixeduptracknumber
-            = fixUpTrackNumber( $changedframes{'TRACKNUMBER'}, $srcfilename );
-        if ( $fixeduptracknumber ne $changedframes{'TRACKNUMBER'} ) {
-            $changedframes{'TRACKNUMBER'} = $fixeduptracknumber;
+            = fixUpTrackNumber( $frames_to_update{'TRACKNUMBER'},
+            $srcfilename );
+        if ( $fixeduptracknumber ne $frames_to_update{'TRACKNUMBER'} ) {
+            $frames_to_update{'TRACKNUMBER'} = $fixeduptracknumber;
         }
     }
 
     if ( $::Options{debug} ) {
-        print "Tags we know how to deal with from source file:\n";
-        print Dumper \%changedframes;
+        msg("Tags we know how to deal with from source file:");
+        msg( Dumper \%frames_to_update );
+
     }
 
     # Initialise file processing flags
     my %pflags = (
-        exists    => 0,
-        md5       => $Options{md5},
-        tags      => 0,
-        timestamp => 1
+        exists => 0,    # assume file doesn't exist
+        md5    => 1,    # and the md5 checksum doesn't match
+        tags   => 0,    # and the tags match (this will be set if tags
+                        # don't match
     );
 
     # if destfile already exists
     if ( -e $destfilename ) {
 
         $pflags{exists} = 1;
+        $::Options{debug} && msg("destfile exists: '$destfilename'");
 
-        $::Options{debug} && msg("destfile exists: '$destfilename'\n");
+   # General approach:
+   #   Transcode the file if destfile md5 tag is different than the srcfile md5
+   #   Update the tags if tags are different
 
-        # get destfile timestamp
-        $deststat = stat($destfilename);
+        # Get tags from dst file and compare
+        $::Options{debug} && msg("Comparing tags");
 
-        my $srcmodtime  = scalar $srcstat->mtime;
-        my $destmodtime = scalar $deststat->mtime;
+        # Compare tags; build hash of changed tags;
 
-        if ( $::Options{debug} ) {
-            print("srcfile mtime:  $srcmodtime\n");
-            print("destfile mtime: $destmodtime\n");
-        }
+        my $mp3  = MP3::Tag->new($destfilename);
+        my @tags = $mp3->get_tags;
+        $::Options{debug} && msg( Dumper @tags );
+        my $ID3v2 = $mp3->{"ID3v2"};
 
-       # General approach:
-       #   Don't process the file if srcfile timestamp is earlier than destfile
-       #   or tags are different
-       #
-       # First check timestamps and set flag
-        if ( $srcmodtime <= $destmodtime ) {
-            $pflags{timestamp} = 0;
-        }
+        # If an ID3v2 tag is found
+        if ( defined $ID3v2 ) {
 
-        # Check MD5 if option enabled and id3v2 frame found in mp3 file
-        #	if ($Options{md5} && $mp3->{ID3v2}) {
-        #	    if ($Options{debug}) {
-        #		msg "Checking MD5\n";
-        #		msg "UFID is: " . Dumper $mp3->{ID3v2}->get_frame('UFID');
-        #	    };
+            $::Options{debug} && msg("ID3v2 tag found");
 
-        # If the source file is not newer than dest file
-        if ( !$pflags{timestamp} ) {
+            # loop over all valid destfile frames
+            foreach my $frame ( keys %MP3frames ) {
 
-            $Options{debug} && msg("Comparing tags\n");
-
-            # Compare tags; build hash of changed tags;
-            # if hash empty, process the file
-
-            my $mp3 = MP3::Tag->new($destfilename);
-
-            my @tags = $mp3->get_tags;
-
-            $Options{debug} && print Dumper @tags;
-
-            # If an ID3v2 tag is found
-            my $ID3v2 = $mp3->{"ID3v2"};
-            if ( defined $ID3v2 ) {
-
-                $Options{debug} && msg("ID3v2 tag found\n");
-
-                # loop over all valid destfile frames
-                foreach my $frame ( keys %MP3frames ) {
-
-                    $::Options{debug} && msg("frame is '$frame'\n");
-
-            # To do: Check the frame is valid
-            # Specifically, make sure the GENRE is one of the standard ID3 tags
-                    my $method = $MP3frames{$frame};
-
-                    $::Options{debug} && msg("method is '$method'\n");
-
-                    # Check for tag in destfile
-                    my ( $tagname, @info ) = $ID3v2->get_frames($method);
-
-                    #$destframe = '' if ( !defined $destframe );
-
-                    $::Options{debug}
-                        && print "values from id3v2 tags:\n"
-                        . Dumper \$tagname, \@info;
-
-                    my $dest_text = '';
-
-                    # check for complex frame (e.g. Comments)
-                TAGLOOP:
-                    foreach my $tag_info (@info) {
-                        if ( ref $tag_info ) {
-                            my $cfname = $MP3frametexts{$frame};
-                            my $cfkey  = $Complex_Frame_Keys{$method};
-
-                            if ( $$tag_info{$cfkey} eq $cfname ) {
-                                $dest_text = $$tag_info{'Text'};
-                                last TAGLOOP;
-                            }
-                        }
-                        else {
-                            $dest_text = $tag_info;
-                        }
-                    }
-
-                    $::Options{debug}
-                        && print "\$dest_text xxx2: " . Dumper $dest_text;
-
-                    # Fix up TRACKNUMBER
-                    if ( $frame eq "TRACKNUMBER" ) {
-                        my $fixeduptracknumber
-                            = fixUpTrackNumber( $dest_text, $destfilename );
-                        if ( $fixeduptracknumber ne $dest_text ) {
-                            $dest_text = $fixeduptracknumber;
-                        }
-                    }
-
-                    # get tag from srcfile
-                    my $srcframe = utf8toLatin1( $changedframes{$frame} );
-                    $srcframe = '' if ( !defined $srcframe );
-
-                    # Strip trailing spaces from src frame value
-                    $srcframe =~ s/ *$//;
-
-                    # If set the flag if any frame is different
-                    if ( $dest_text ne $srcframe ) {
-                        if ( $::Options{tagdiff} ) {
-                            msg("frame: '$frame'\n");
-                            msg("srcframe value: '$srcframe'\n");
-                            msg("destframe value: '$dest_text'\n");
-                        }
-                        $pflags{tags} = 1;
-                    }
-                }
-            }
-        }
-    }
-
-    if ( $::Options{debug} ) {
-        msg("pf_exists:    $pflags{exists}\n");
-        msg("pf_tags:      $pflags{tags}\n");
-        msg("pf_timestamp: $pflags{timestamp}\n");
-    }
-
-    if ( $::Options{debug} ) {
-        print "Tags to be written if tags need updating\n";
-        print Dumper \%changedframes;
-    }
-
-    if (   !$pflags{exists}
-        || $pflags{timestamp}
-        || $pflags{tags}
-        || $::Options{force} )
-    {
-        $::Options{info}
-            && msg( $pretendString . "Processing \"$srcfilename\"\n" );
-
-        if ($::Options{force}
-            || (!$::Options{tagsonly}
-                && ( !$pflags{exists}
-                    || ( $pflags{exists} && !$pflags{tags} ) )
-            )
-            )
-        {
-
-           # Building command used to convert file (tagging done afterwards)
-           # Needs some work on quoting filenames containing special characters
-            my $quotedsrc  = $srcfilename;
-            my $quoteddest = $destfilename;
-
-            # Transcode to a temp file in the destdir.
-            # Rename the file if the conversion completes sucessfully
-            # This avoids leaving incomplete files in the destdir
-            # If we're "pretending", don't create a File::Temp object
-            my $tmpfilename;
-            my $tmpfh;
-            if ( $::Options{pretend} ) {
-                $tmpfilename = $quoteddest;
-            }
-            else {
-
-                # Create the destination directory if it
-                # doesn't already exist
-                mkpath($dst_dir)
-                    or die "Can't create directory $dst_dir\n"
-                    unless -d $dst_dir;
-                $tmpfh = new File::Temp(
-                    UNLINK => 1,
-                    DIR    => $dst_dir,
-                    SUFFIX => '.tmp'
-                );
-                $tmpfilename = $tmpfh->filename;
-            }
-
-            my $convert_command = "\"$flaccmd\" @flacargs \"$quotedsrc\""
-                . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
-
-            $::Options{debug} && msg("$convert_command\n");
-
-            # Convert the file (unless we're pretending}
-            my $exit_value;
-            if ( !$::Options{pretend} ) {
-                $exit_value = system($convert_command);
-            }
-            else {
-                $exit_value = 0;
-            }
-
-            $::Options{debug}
-                && msg("Exit value from convert command: $exit_value\n");
-
-            if ($exit_value) {
-                msg("$convert_command failed with exit code $exit_value\n");
-
-                # delete the destfile if it exists
-                unlink $destfilename;
-
-                # should check exit status of this command
-
-                exit($exit_value);
-            }
-
-            if ( !$::Options{pretend} ) {
-
-                # If we get here, assume the conversion has succeeded
-                $tmpfh->unlink_on_destroy(0);
-                $tmpfh->close;
-                croak "Failed to rename '$tmpfilename' to '$destfilename' $!"
-                    unless rename( $tmpfilename, $destfilename );
-
-                # the destfile now exists!
-                $pflags{exists} = 1;
-            }
-        }
-
-        # Write the tags to the converted file, unless we're
-        # pretending
-        if (   !$::Options{pretend}
-            && $pflags{exists}
-            && ( $pflags{tags} || $pflags{timestamp} )
-            || $::Options{force} )
-        {
-
-            my $mp3 = MP3::Tag->new($destfilename);
-
-            # Remove any existing tags
-            $mp3->{ID3v2}->remove_tag if exists $mp3->{ID3v2};
-
-            # Create a new tag
-            $mp3->new_tag("ID3v2");
-
-            foreach my $frame ( keys %changedframes ) {
-
-                $::Options{debug} && msg("changedframe is '$frame'\n");
+                $::Options{debug} && msg("frame is '$frame'");
 
             # To do: Check the frame is valid
             # Specifically, make sure the GENRE is one of the standard ID3 tags
                 my $method = $MP3frames{$frame};
 
-                $::Options{debug} && msg("method is $method\n");
+                $::Options{debug} && msg("method is '$method'");
 
-                # Convert utf8 string to Latin1 charset
-                my $framestring = utf8toLatin1( $changedframes{$frame} );
+                # Check for tag in destfile
+                my ( $tagname, @info ) = $ID3v2->get_frames($method);
 
-                # Only add the frame if framestring is not empty
-                if ($framestring) {
-                    $::Options{debug}
-                        && msg("Setting $frame = '$framestring'\n");
+                $::Options{debug}
+                    && msg( "values from id3v2 tags:\n" . Dumper \$tagname,
+                    \@info );
 
-                    # COMM, TXX, and UFID are Complex frames that must be
-                    # treated differently.
-                    if ( $method eq "COMM" ) {
-                        $mp3->{"ID3v2"}
-                            ->add_frame( $method, 'ENG', 'Short Text',
-                            $framestring );
-                    }
-                    elsif ( $method eq "TXXX" ) {
-                        my $frametext = $MP3frametexts{$frame};
-                        $frametext = $frame if ( !( defined($frametext) ) );
-                        $mp3->{"ID3v2"}->add_frame( $method, 0, $frametext,
-                            $framestring );
-                    }
-                    elsif ( $method eq 'UFID' ) {
-                        my $frametext = $MP3frametexts{$frame};
-                        $mp3->{'ID3v2'}
-                            ->add_frame( $method, $framestring, $frametext );
+                my $dest_text = '';
+
+                # check for complex frame (e.g. Comments)
+            TAGLOOP:
+                foreach my $tag_info (@info) {
+                    if ( ref $tag_info ) {
+                        my $cfname = $MP3frametexts{$frame};
+                        my $cfkey  = $Complex_Frame_Keys{$method};
+
+                        if ( $$tag_info{$cfkey} eq $cfname ) {
+                            $dest_text = $$tag_info{'Text'};
+                            if ( $frame eq 'MD5' ) {
+                                $pflags{md5} = (
+                                    $frames_to_update{'MD5'} ne $dest_text );
+
+                                if ( $::Options{debug} ) {
+                                    msg( "\$pflags{md5} is "
+                                        . ( $pflags{md5} ? 'set' : 'not set' )
+                                    );
+
+                                }
+                            }
+                            last TAGLOOP;
+                        }
                     }
                     else {
-                        $mp3->{"ID3v2"}->add_frame( $method, $framestring );
+                        $dest_text = $tag_info;
                     }
                 }
+
+                $::Options{debug}
+                    && msg( "\$dest_text: " . Dumper $dest_text );
+
+                # Fix up TRACKNUMBER
+                if ( $frame eq 'TRACKNUMBER' ) {
+                    my $fixeduptracknumber
+                        = fixUpTrackNumber( $dest_text, $destfilename );
+                    if ( $fixeduptracknumber ne $dest_text ) {
+                        $dest_text = $fixeduptracknumber;
+                    }
+                }
+
+                # get tag from srcfile
+                my $srcframe = utf8toLatin1( $frames_to_update{$frame} );
+                $srcframe = '' if ( !defined $srcframe );
+
+                # Strip trailing spaces from src frame value
+                $srcframe =~ s/ *$//;
+
+                # If set the flag if any frame is different
+                if ( $dest_text ne $srcframe ) {
+                    $pflags{tags} = 1;
+                    if ( $::Options{tagdiff} ) {
+                        msg("frame: '$frame'");
+                        msg("srcframe value: '$srcframe'");
+                        msg("destframe value: '$dest_text'");
+                    }
+
+                }
             }
-
-            $mp3->{ID3v2}->write_tag;
-
-            $mp3->close();
-
-    # should optionally reset the destfile timestamp to the same as the srcfile
-    # utime $srcstat->mtime, $srcstat->mtime, $destfilename;
         }
-###==================================================================
-    TEMPJUMP01:
+    }
+
+    if ( $::Options{debug} ) {
+        msg("pf_exists:    $pflags{exists}");
+        msg("pf_tags:      $pflags{tags}");
+        msg("pf_md5:       $pflags{md5}\n");
+    }
+
+    if ( $::Options{debug} ) {
+        msg("Tags to be written if tags need updating\n");
+        msg( Dumper \%frames_to_update );
+    }
+
+    if ( ( ( !$pflags{exists} || $pflags{md5} ) && !$::Options{tagsonly} )
+        || $::Options{force} )
+    {
+        $::Options{info}
+            && msg( $pretendString . "Processing \"$srcfilename\"" );
+
+        # Building command used to convert file (tagging done afterwards)
+        # Needs some work on quoting filenames containing special characters
+        my $quotedsrc  = $srcfilename;
+        my $quoteddest = $destfilename;
+
+        # Transcode to a temp file in the destdir.
+        # Rename the file if the conversion completes sucessfully
+        # This avoids leaving incomplete files in the destdir
+        # If we're "pretending", don't create a File::Temp object
+        my $tmpfilename;
+        my $tmpfh;
+        if ( $::Options{pretend} ) {
+            $tmpfilename = $quoteddest;
+        }
+        else {
+
+            # Create the destination directory if it
+            # doesn't already exist
+            mkpath($dst_dir)
+                or die "Can't create directory $dst_dir\n"
+                unless -d $dst_dir;
+            $tmpfh = new File::Temp(
+                UNLINK => 1,
+                DIR    => $dst_dir,
+                SUFFIX => '.tmp'
+            );
+            $tmpfilename = $tmpfh->filename;
+        }
+
+        my $convert_command = "\"$flaccmd\" @flacargs \"$quotedsrc\""
+            . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
+
+        $::Options{debug} && msg("$convert_command");
+
+        # Convert the file (unless we're pretending}
+        my $exit_value;
+        if ( !$::Options{pretend} ) {
+            $exit_value = system($convert_command);
+        }
+        else {
+            $exit_value = 0;
+        }
+
+        $::Options{debug}
+            && msg("Exit value from convert command: $exit_value");
+
+        if ($exit_value) {
+            msg("$convert_command failed with exit code $exit_value");
+
+            # delete the destfile if it exists
+            unlink $destfilename;
+
+            # should check exit status of this command
+
+            exit($exit_value);
+        }
+
+        if ( !$::Options{pretend} ) {
+
+            # If we get here, assume the conversion has succeeded
+            $tmpfh->unlink_on_destroy(0);
+            $tmpfh->close;
+            croak "Failed to rename '$tmpfilename' to '$destfilename' $!"
+                unless rename( $tmpfilename, $destfilename );
+
+            # the destfile now exists!
+            $pflags{exists} = 1;
+
+            # and the tags need writing
+            $pflags{tags} = 1;
+        }
+    }
+
+    if ( $::Options{debug} ) {
+        msg("pf_exists:    $pflags{exists}");
+        msg("pf_tags:      $pflags{tags}");
+        msg("\$::Options{pretend}:   $::Options{pretend}");
+
+        #        msg("pf_timestamp: $pflags{timestamp}\n");
+    }
+
+    # Write the tags to the converted file, unless we're
+    # pretending
+    if ( ( !$::Options{pretend} && $pflags{exists} && $pflags{tags} )
+        || $::Options{force} )
+    {
+
+        $::Options{debug} && msg("Writing tags");
+
+        my $mp3 = MP3::Tag->new($destfilename);
+
+        # Remove any existing tags
+        $mp3->{ID3v2}->remove_tag if exists $mp3->{ID3v2};
+
+        # Create a new tag
+        $mp3->new_tag("ID3v2");
+
+        foreach my $frame ( keys %frames_to_update ) {
+
+            $::Options{debug}
+                && msg("changedframe is '$frame'");
+
+            # To do: Check the frame is valid
+            # Specifically, make sure the GENRE is one of the standard ID3 tags
+            my $method = $MP3frames{$frame};
+
+            $::Options{debug} && msg("method is $method");
+
+            # Convert utf8 string to Latin1 charset
+            my $framestring = utf8toLatin1( $frames_to_update{$frame} );
+
+            # Only add the frame if framestring is not empty
+            if ($framestring) {
+                $::Options{debug}
+                    && msg("Setting $frame = '$framestring'");
+
+                # COMM, TXX, and UFID are Complex frames that must be
+                # treated differently.
+                if ( $method eq "COMM" ) {
+                    $mp3->{"ID3v2"}->add_frame( $method, 'ENG', 'Short Text',
+                        $framestring );
+                }
+                elsif ( $method eq "TXXX" ) {
+                    my $frametext = $MP3frametexts{$frame};
+                    $frametext = $frame
+                        if ( !( defined($frametext) ) );
+                    $mp3->{"ID3v2"}
+                        ->add_frame( $method, 0, $frametext, $framestring );
+                }
+                elsif ( $method eq 'UFID' ) {
+                    my $frametext = $MP3frametexts{$frame};
+                    $mp3->{'ID3v2'}
+                        ->add_frame( $method, $framestring, $frametext );
+                }
+                else {
+                    $mp3->{"ID3v2"}->add_frame( $method, $framestring );
+                }
+            }
+        }
+
+        $mp3->{ID3v2}->write_tag;
+
+        $mp3->close();
+
+    # should we optionally reset the destfile timestamp to the same as the srcfile
+    # utime $srcstat->mtime, $srcstat->mtime, $destfilename;
     }
 }
 
@@ -648,7 +619,8 @@ sub fixUpTrackNumber {
             $trackNum = sprintf( "%02u", $trackNum );
         }
         else {
-            $::Options{info} && msg("TRACKNUMBER not numeric in $filename\n");
+            $::Options{info}
+                && msg("TRACKNUMBER not numeric in $filename");
         }
     }
     return $trackNum;
