@@ -61,7 +61,7 @@ our @flacargs = qw (
 # hash mapping FLAC tag names to MP3 frames
 our %MP3frames = (
     'ALBUM'                   => 'TALB',
-    'ALBUMARTIST'             => 'TPE2',
+#    'ALBUMARTIST'             => 'TPE2',
     'ARTIST'                  => 'TPE1',
     'BAND'                    => 'TPE2',
     'BPM'                     => 'TBPM',
@@ -420,7 +420,10 @@ sub convert_file {
 
                 }
             }
-        }
+        } else {
+	    # no ID2V2 object found so set the flag so the tags get written
+	    $pflags{tags} = 1;
+	}
     }
 
     if ( $::Options{debug} ) {
