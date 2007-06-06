@@ -377,8 +377,10 @@ sub convert_file {
                                     $frames_to_update{'MD5'} ne $dest_text );
 
                                 if ( $::Options{debug} ) {
-                                    msg( "\$pflags{md5} is "
-                                        . ( $pflags{md5} ? 'set' : 'not set' )
+                                    msg("\$pflags{md5} is "
+                                            . (
+                                            $pflags{md5} ? 'set' : 'not set'
+                                            )
                                     );
 
                                 }
@@ -435,16 +437,17 @@ sub convert_file {
         msg( Dumper \%frames_to_update );
     }
 
-    if ( ( ( !$pflags{exists} || $pflags{md5} ) && !$::Options{tagsonly} )
-        || $::Options{force} )
-    {
-        $::Options{info}
-            && msg( $pretendString . "Processing \"$srcfilename\"" );
+    # Building command used to convert file (tagging done afterwards)
+    # Needs some work on quoting filenames containing special characters
+    my $quotedsrc  = $srcfilename;
+    my $quoteddest = $destfilename;
 
-        # Building command used to convert file (tagging done afterwards)
-        # Needs some work on quoting filenames containing special characters
-        my $quotedsrc  = $srcfilename;
-        my $quoteddest = $destfilename;
+    if ( ( !$pflags{exists} || $pflags{md5} || $::Options{force} )
+        && !$::Options{tagsonly} )
+    {
+
+        $::Options{info}
+            && msg( $pretendString . "Transcoding \"$quotedsrc\"" );
 
         # Transcode to a temp file in the destdir.
         # Rename the file if the conversion completes sucessfully
@@ -518,75 +521,79 @@ sub convert_file {
         msg("pf_exists:    $pflags{exists}");
         msg("pf_tags:      $pflags{tags}");
         msg("\$::Options{pretend}:   $::Options{pretend}");
-
-        #        msg("pf_timestamp: $pflags{timestamp}\n");
     }
 
     # Write the tags to the converted file, unless we're
     # pretending
-    if ( ( !$::Options{pretend} && $pflags{exists} && $pflags{tags} )
-        || $::Options{force} )
+    if ($pflags{exists}
+        && (   $pflags{tags}
+            || $::Options{force} )
+        )
     {
 
-        $::Options{debug} && msg("Writing tags");
+        $::Options{info}
+            && msg( $pretendString . "Writing tags to \"$quoteddest\"" );
 
-        my $mp3 = MP3::Tag->new($destfilename);
+        if ( !$::Options{pretend} ) {
+            my $mp3 = MP3::Tag->new($destfilename);
 
-        # Remove any existing tags
-        $mp3->{ID3v2}->remove_tag if exists $mp3->{ID3v2};
+            # Remove any existing tags
+            $mp3->{ID3v2}->remove_tag if exists $mp3->{ID3v2};
 
-        # Create a new tag
-        $mp3->new_tag("ID3v2");
+            # Create a new tag
+            $mp3->new_tag("ID3v2");
 
-        foreach my $frame ( keys %frames_to_update ) {
+            foreach my $frame ( keys %frames_to_update ) {
 
-            $::Options{debug}
-                && msg("changedframe is '$frame'");
+                $::Options{debug}
+                    && msg("changedframe is '$frame'");
 
             # To do: Check the frame is valid
             # Specifically, make sure the GENRE is one of the standard ID3 tags
-            my $method = $MP3frames{$frame};
+                my $method = $MP3frames{$frame};
 
-            $::Options{debug} && msg("method is $method");
+                $::Options{debug} && msg("method is $method");
 
-            # Convert utf8 string to Latin1 charset
-            my $framestring = utf8toLatin1( $frames_to_update{$frame} );
+                # Convert utf8 string to Latin1 charset
+                my $framestring = utf8toLatin1( $frames_to_update{$frame} );
 
-            # Only add the frame if framestring is not empty
-            if ($framestring) {
-                $::Options{debug}
-                    && msg("Setting $frame = '$framestring'");
+                # Only add the frame if framestring is not empty
+                if ($framestring) {
+                    $::Options{debug}
+                        && msg("Setting $frame = '$framestring'");
 
-                # COMM, TXX, and UFID are Complex frames that must be
-                # treated differently.
-                if ( $method eq "COMM" ) {
-                    $mp3->{"ID3v2"}->add_frame( $method, 'ENG', 'Short Text',
-                        $framestring );
-                }
-                elsif ( $method eq "TXXX" ) {
-                    my $frametext = $MP3frametexts{$frame};
-                    $frametext = $frame
-                        if ( !( defined($frametext) ) );
-                    $mp3->{"ID3v2"}
-                        ->add_frame( $method, 0, $frametext, $framestring );
-                }
-                elsif ( $method eq 'UFID' ) {
-                    my $frametext = $MP3frametexts{$frame};
-                    $mp3->{'ID3v2'}
-                        ->add_frame( $method, $framestring, $frametext );
-                }
-                else {
-                    $mp3->{"ID3v2"}->add_frame( $method, $framestring );
+                    # COMM, TXX, and UFID are Complex frames that must be
+                    # treated differently.
+                    if ( $method eq "COMM" ) {
+                        $mp3->{"ID3v2"}
+                            ->add_frame( $method, 'ENG', 'Short Text',
+                            $framestring );
+                    }
+                    elsif ( $method eq "TXXX" ) {
+                        my $frametext = $MP3frametexts{$frame};
+                        $frametext = $frame
+                            if ( !( defined($frametext) ) );
+                        $mp3->{"ID3v2"}->add_frame( $method, 0, $frametext,
+                            $framestring );
+                    }
+                    elsif ( $method eq 'UFID' ) {
+                        my $frametext = $MP3frametexts{$frame};
+                        $mp3->{'ID3v2'}
+                            ->add_frame( $method, $framestring, $frametext );
+                    }
+                    else {
+                        $mp3->{"ID3v2"}->add_frame( $method, $framestring );
+                    }
                 }
             }
+
+            $mp3->{ID3v2}->write_tag;
+
+            $mp3->close();
+
+ # should we optionally reset the destfile timestamp to the same as the srcfile
+ # utime $srcstat->mtime, $srcstat->mtime, $destfilename;
         }
-
-        $mp3->{ID3v2}->write_tag;
-
-        $mp3->close();
-
-    # should we optionally reset the destfile timestamp to the same as the srcfile
-    # utime $srcstat->mtime, $srcstat->mtime, $destfilename;
     }
 }
 
