@@ -21,7 +21,6 @@ use File::Basename;
 use File::Find::Rule;
 use File::Path;
 use File::Spec;
-use File::stat;
 use File::Temp qw/ cleanup /;
 use File::Which;
 use Getopt::Long;
@@ -132,8 +131,6 @@ GetOptions(
     \%Options, "quiet!", "tagdiff", "debug!", "tagsonly!", "force!",
     "usage",   "help",   "version", "pretend",
 );
-
-$::Options{pretend} = $::Options{pretend} || 0;
 
 # info flag is the inverse of --quiet
 $::Options{info} = !$::Options{quiet};
@@ -520,11 +517,11 @@ sub convert_file {
     if ( $::Options{debug} ) {
         msg("pf_exists:    $pflags{exists}");
         msg("pf_tags:      $pflags{tags}");
-        msg("\$::Options{pretend}:   $::Options{pretend}");
+        msg( "\$::Options{pretend}:   "
+                . ( $::Options{pretend} ? 'set' : 'not set' ) );
     }
 
-    # Write the tags to the converted file, unless we're
-    # pretending
+    # Write the tags
     if ($pflags{exists}
         && (   $pflags{tags}
             || $::Options{force} )
