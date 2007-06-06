@@ -194,7 +194,7 @@ $::Options{info}
 # Now look for files in the current directory
 # (following symlinks)
 my @flac_files
-    = File::Find::Rule->file()->extras( { follow => 1 } )->name('*.flac')
+    = File::Find::Rule->file()->extras( { follow => 1 } )->name( qr/\.flac/i )
     ->in('.');
 
 $::Options{debug} && msg( Dumper(@flac_files) );
