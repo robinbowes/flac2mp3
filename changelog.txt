@@ -1,3 +1,5 @@
+v0.3.0
+ - added "--pretend" option to show what files would be affected
 v0.2.9
  - Rewrite of fork/exec code to work on Windows
    (thanks Darren Warner <darren@dazwin.com>)
