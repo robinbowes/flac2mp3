@@ -284,24 +284,31 @@ sub convert_file {
 
     # weed out tags not valid in destfile
     foreach my $frame ( keys %$srcframes ) {
-	if ( $MP3frames{$frame} ) {
-	    # Multiple comments with the same name are returned as an array
-	    # Check for that here and convert the array to a null-separated
-	    # list to be compatible with mp3 tags
-	    my $src_frame_type = ref( $srcframes->{$frame} );
-	    # Check for normal string
-	    if ( ! $src_frame_type ) {
-		$frames_to_update{$frame} = fixUpFrame($srcframes->{$frame});
-	    } else {
-		if ($src_frame_type eq 'ARRAY') {
-		    # Fixup each value individually
-		    map{$_ = fixUpFrame($_)} @{$srcframes->{$frame}};
-		    # join all values in null-separated list
-		    $frames_to_update{$frame} = join ( "\000", @{$srcframes->{$frame}} );
-		} else {
-		    carp "Unexpected source frame data type returned";
-		}
-	    }
+        if ( $MP3frames{$frame} ) {
+
+            # Multiple comments with the same name are returned as an array
+            # Check for that here and convert the array to a null-separated
+            # list to be compatible with mp3 tags
+            my $src_frame_type = ref( $srcframes->{$frame} );
+
+            # Check for normal string
+            if ( !$src_frame_type ) {
+                $frames_to_update{$frame} = fixUpFrame( $srcframes->{$frame} );
+            }
+            else {
+                if ( $src_frame_type eq 'ARRAY' ) {
+
+                    # Fixup each value individually
+                    map { $_ = fixUpFrame($_) } @{ $srcframes->{$frame} };
+
+                    # join all values in null-separated list
+                    $frames_to_update{$frame} =
+                      join( "\000", @{ $srcframes->{$frame} } );
+                }
+                else {
+                    carp "Unexpected source frame data type returned";
+                }
+            }
         }
     }
 
@@ -367,10 +374,11 @@ sub convert_file {
 
                 $::Options{debug} && msg("method is '$method'");
 
-                # Check for tag in destfile
-		# 'intact' option makes sure that any embedded '\0' are not mangled
-		# This is needed now we can handle multiple tags of the same type
-                my ( $tagname, @info ) = $ID3v2->get_frames($method, 'intact');
+             # Check for tag in destfile
+             # 'intact' option makes sure that any embedded '\0' are not mangled
+             # This is needed now we can handle multiple tags of the same type
+                my ( $tagname, @info ) =
+                  $ID3v2->get_frames( $method, 'intact' );
 
                 $::Options{debug}
                   && msg( "values from id3v2 tags:\n" . Dumper \$tagname,
@@ -381,7 +389,7 @@ sub convert_file {
                 # check for complex frame (e.g. Comments)
               TAGLOOP:
                 foreach my $tag_info (@info) {
-                    if ( ref( $tag_info ) ) {
+                    if ( ref($tag_info) ) {
                         my $cfname = $MP3frametexts{$frame};
                         my $cfkey  = $Complex_Frame_Keys{$method};
 
@@ -637,7 +645,7 @@ sub utf8toLatin1 {
 
 sub fixUpFrame {
     my ($frameValue) = @_;
-    $frameValue = utf8toLatin1( $frameValue );
+    $frameValue = utf8toLatin1($frameValue);
     $frameValue =~ s/ +$//;
     return $frameValue;
 }
