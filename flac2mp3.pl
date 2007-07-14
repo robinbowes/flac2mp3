@@ -291,9 +291,12 @@ sub convert_file {
 	    my $src_frame_type = ref( $srcframes->{$frame} );
 	    # Check for normal string
 	    if ( ! $src_frame_type ) {
-		$frames_to_update{$frame} = $srcframes->{$frame};
+		$frames_to_update{$frame} = fixUpFrame($srcframes->{$frame});
 	    } else {
 		if ($src_frame_type eq 'ARRAY') {
+		    # Fixup each value individually
+		    map{$_ = fixUpFrame($_)} @{$srcframes->{$frame}};
+		    # join all values in null-separated list
 		    $frames_to_update{$frame} = join ( "\000", @{$srcframes->{$frame}} );
 		} else {
 		    carp "Unexpected source frame data type returned";
@@ -378,7 +381,7 @@ sub convert_file {
                 # check for complex frame (e.g. Comments)
               TAGLOOP:
                 foreach my $tag_info (@info) {
-                    if ( ref $tag_info ) {
+                    if ( ref( $tag_info ) ) {
                         my $cfname = $MP3frametexts{$frame};
                         my $cfkey  = $Complex_Frame_Keys{$method};
 
@@ -416,11 +419,11 @@ sub convert_file {
                 }
 
                 # get tag from srcfile
-                my $srcframe = utf8toLatin1( $frames_to_update{$frame} );
+                my $srcframe = $frames_to_update{$frame};
                 $srcframe = '' if ( !defined $srcframe );
 
                 # Strip trailing spaces from src frame value
-                $srcframe =~ s/ *$//;
+                # $srcframe =~ s/ *$//;
 
                 # If set the flag if any frame is different
                 if ( $dest_text ne $srcframe ) {
@@ -572,7 +575,7 @@ sub convert_file {
                 $::Options{debug} && msg("method is $method");
 
                 # Convert utf8 string to Latin1 charset
-                my $framestring = utf8toLatin1( $frames_to_update{$frame} );
+                my $framestring = $frames_to_update{$frame};
 
                 # Only add the frame if framestring is not empty
                 if ($framestring) {
@@ -630,6 +633,13 @@ sub utf8toLatin1 {
     }
 
     return $data;
+}
+
+sub fixUpFrame {
+    my ($frameValue) = @_;
+    $frameValue = utf8toLatin1( $frameValue );
+    $frameValue =~ s/ +$//;
+    return $frameValue;
 }
 
 sub fixUpTrackNumber {
