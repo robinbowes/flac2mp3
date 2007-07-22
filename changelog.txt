@@ -1,5 +1,28 @@
+<<<<<<< .mine
+v0.3.0
+ - Remove fork/exec code and revert to "system" command.
+ - Use FLAC MD5 checksum to determine whether or not to transcode the file
+ - Add "--pretend" option
+ - Handle multiple tags of the same type, e.g. multiple Artist tags
+ - Update how command-line switches interact (--tagsonly now overrides
+   --force)
+ - Write two separate notifications - one for transcoding, one for tags
+ - make file search case-insensitive (.flac and .FLAC)
+ - only check for ".flac" at the end of the filename
+ - Fix detection of flac/lame executables
+ - Add instructions about how to specify flac/lame paths
+ - Change quoting of flac/lame command
+ - Change shebang (apparently, env is usually in /usr/bin)
+ - Update CPAN modules distributed with package
+ - Transcode to a temp file and rename if successful
+ - Add ALBUMARTIST and COMPILATION tags
+ - Add "--noreplaygain" to lame options
+ - Add "--pretend"
+ - Various code clean-ups and bug fixes
+=======
 v0.3.0
  - added "--pretend" option to show what files would be affected
+>>>>>>> .r98
 v0.2.9
  - Rewrite of fork/exec code to work on Windows
    (thanks Darren Warner <darren@dazwin.com>)
