@@ -249,11 +249,11 @@ foreach my $src_file (@flac_files) {
 
 sub showusage {
     print <<"EOT";
-Usage: $0 [--quiet] [--debug] [--tagsonly] [--force] <flacdir> <mp3dir>
+Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] <flacdir> <mp3dir>
+    --pretend       Don't actually do anything
     --quiet         Disable informational output to stdout
     --debug         Enable debugging output. For developers only!
     --tagsonly      Don't do any transcoding - just update tags
-    --pretend       Don't actually do anything
     --force         Force transcoding and tag update even if not required
     --tagdiff	    Print source/dest tag values if different
 EOT

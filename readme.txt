@@ -59,16 +59,21 @@ Now, suppose I notice that I've spelled "coldplay" wrongly. I simply
 use a tag editor to correct the flac files then run flac2mp3 again
 to update the tags in the mp3 files:
 
-  flac2mp3.pl --tags-only /path/to/lossless /path/to/lossy
+  flac2mp3.pl /path/to/lossless /path/to/lossy
+
+flac2mp3 will detect that just the tags have changed in the flac files
+and update the mp3 files without re-transcoding. 
 
 Command-line options can be seen by typing "flac2mp3.pl" with no options:
 
-  Usage: ./flac2mp3.pl [--quiet] [--debug] [--tagsonly] [--force] <flacdir>
-<mp3dir>
+Usage: ./flac2mp3.pl [--pretend] [--quiet] [--debug] [--tagsonly] [--force]
+[--tagdiff] <flacdir> <mp3dir>
+    --pretend       Don't actually do anything
     --quiet         Disable informational output to stdout
     --debug         Enable debugging output. For developers only!
     --tagsonly      Don't do any transcoding - just update tags
     --force         Force transcoding and tag update even if not required
+    --tagdiff       Print source/dest tag values if different
 
 Installation
 ============
@@ -80,7 +85,7 @@ directory of your choice.
 For example, on linux:
 
  # cd ~/bin
- # tar zxvf flac2mp3-0.2.6.tar.gz
+ # tar zxvf flac2mp3-0.3.0.tar.gz
 
 On Windows, you can use Winzip or other utility to unzip the file and
 extract the archive.
@@ -105,4 +110,4 @@ To subscribe: flac2mp3-general-subscribe@robinbowes.com
 Please report any issues to robin-flac2mp3@robinbowes.com
 
 Robin Bowes
-August 2005
+July 2007
