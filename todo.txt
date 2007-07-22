@@ -1,11 +1,8 @@
 # To-do:
-#  - Extend to apply all legal tags in FLAC field (esp. Composer,
-#    Conductor, etc.)
-#  - Still falls over with certain characters in filename, e.g.
+#  - Add ReplyGain support
+#  - Double-check how we handle special shell chars in filenames, e.g.
 #    Rock `N' Roll Suicide.flac
 #  - Clean up filepaths (check for double // in dirnames)
-#  - Clean up and rationalise program output, e.g. produce a sensible
-#    level of output by default unless a --quiet switch is used
 #  - Investigate using Audio::FLAC::Decode and Audio::MPEG instead of
 #    flac and lame programs used from system call
 #  - Write OO Audio file objects that know how to decode/encode/get
@@ -13,6 +10,4 @@
 #    transcoding between additional formats.
 #  - google for a standard perl script template include things like
 #    options, pod, GPL statement, how to set program version, etc. etc.
-#  - Use Carp module
 #  - Use Shell::Quote module
-
