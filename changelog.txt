@@ -1,6 +1,4 @@
-<<<<<<< .mine
 v0.3.0
- - Remove fork/exec code and revert to "system" command.
  - Use FLAC MD5 checksum to determine whether or not to transcode the file
  - Add "--pretend" option
  - Handle multiple tags of the same type, e.g. multiple Artist tags
@@ -15,14 +13,11 @@ v0.3.0
  - Change shebang (apparently, env is usually in /usr/bin)
  - Update CPAN modules distributed with package
  - Transcode to a temp file and rename if successful
+ - Remove fork/exec code and revert to "system" command.
  - Add ALBUMARTIST and COMPILATION tags
  - Add "--noreplaygain" to lame options
  - Add "--pretend"
  - Various code clean-ups and bug fixes
-=======
-v0.3.0
- - added "--pretend" option to show what files would be affected
->>>>>>> .r98
 v0.2.9
  - Rewrite of fork/exec code to work on Windows
    (thanks Darren Warner <darren@dazwin.com>)
