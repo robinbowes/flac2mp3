@@ -1,4 +1,7 @@
-#!/bin/sh 
+#!/bin/env perl
+
+use warnings;
+use strict;
 
 # utility to create a release
 
@@ -11,7 +14,7 @@
 #    svn copy trunk tags/RELEASE-x.y.z
 #
 
-export $VER=0.3.0
+export $VER=0.3.0rc1
 
 # Building a release
 # ==================
@@ -20,9 +23,13 @@ export $VER=0.3.0
         http://robinbowes.com/svn/flac2mp3/tags/RELEASE-$VER \
         flac2mp3-$VER
 #  - remove some dirs from the export so they aren't packaged
-        rm -rf flac2mp3-$VER/patches
+        rm -rf flac2mp3-$VER/patches flac2mp3-$VER/utils
 #  - create tarball and gzip
         tar cvzf flac2mp3-$VER.tar.gz flac2mp3-$VER
 #  - create zip file (for windows users)
         zip -r9 flac2mp3-$VER.zip flac2mp3-$VER
 #  - copy to download directory
+	sudo cp \
+		flac2mp3-$VER.tar.gz \
+		flac2mp3-$VER.zip \
+		/var/www/sites/robinbowes.com/projects/download/flac2mp3/
