@@ -589,7 +589,7 @@ sub convert_file {
                 my $framestring = $frames_to_update{$frame};
 
                 # Only add the frame if framestring is not empty
-                if ($framestring) {
+                if ($framestring ne '') {
                     $::Options{debug}
                       && msg("Setting $frame = '$framestring'");
 
