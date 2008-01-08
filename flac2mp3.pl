@@ -197,9 +197,21 @@ $::Options{info}
 
 # Now look for files in the current directory
 # (following symlinks)
+my $skipfile = '.flac2mp3.ignore';
 my @flac_files =
-  File::Find::Rule->file()->extras( { follow => 1 } )->name(qr/\.flac$/i)
-  ->in('.');
+  File::Find::Rule->file()
+    ->extras( { follow => 1 } )
+    ->name(qr/\.flac$/i)
+    ->exec(
+	sub {
+	    my ($fname, $fpath, $frpath) = @_;
+	    if ( -f "$fpath.$skipfile" ) {
+		return 0
+	    } else {
+		return 1
+	    }
+	} )
+    ->in('.');
 
 $::Options{debug} && msg( Dumper(@flac_files) );
 
