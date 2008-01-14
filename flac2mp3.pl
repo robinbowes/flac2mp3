@@ -90,10 +90,10 @@ our %MP3frames = (
     'MUSICBRAINZ_TRMID'       => 'TXXX',
     'MD5'                     => 'TXXX',
 
-    #    'REPLAYGAIN_TRACK_PEAK'   => 'TXXX',
-    #    'REPLAYGAIN_TRACK_GAIN'   => 'TXXX',
-    #    'REPLAYGAIN_ALBUM_PEAK'   => 'TXXX',
-    #    'REPLAYGAIN_ALBUM_GAIN'   => 'TXXX',
+    'REPLAYGAIN_TRACK_PEAK'   => 'TXXX',
+    'REPLAYGAIN_TRACK_GAIN'   => 'TXXX',
+    'REPLAYGAIN_ALBUM_PEAK'   => 'TXXX',
+    'REPLAYGAIN_ALBUM_GAIN'   => 'TXXX',
 );
 
 our %MP3frametexts = (
