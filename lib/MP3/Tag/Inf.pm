@@ -3,7 +3,7 @@ package MP3::Tag::Inf;
 use strict;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.9706";
+$VERSION="0.9709";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -95,8 +95,14 @@ sub return_parsed {
 	return $self->{parsed}{artist} if $what =~/^a/i;
 	return $self->{parsed}{track}  if $what =~/^tr/i;
 	return $self->{parsed}{year}   if $what =~/^y/i;
-	return $self->{parsed}{comment}if $what =~/^c/i;
 	return $self->{parsed}{genre}  if $what =~/^g/i;
+	if ($what =~/^cddb_id/i) {
+	  my $o = $self->{parsed}{Cddb_discid};
+	  $o =~ s/^0x//i if $o;
+	  return $o;
+	}
+	return $self->{parsed}{Cdindex_discid}  if $what =~/^cdindex_id/i;
+	return $self->{parsed}{comment}if $what =~/^c/i;
 	return $self->{parsed}{title};
     }
 
@@ -121,16 +127,17 @@ sub parse {
     }
     close IN or die "Error closing `$self->{filename}': $!";
     my %parsed;
-    @parsed{ qw( title artist album year comment track ) } =
+    @parsed{ qw( title artist album year comment track Cddb_discid Cdindex_discid ) } =
 	@{ $self->{info} }{ qw( Tracktitle Performer Albumtitle 
-				Year Trackcomment Tracknumber) };
+				Year Trackcomment Tracknumber
+				Cddb_discid Cdindex_discid) };
     $parsed{artist} = $self->{info}{Albumperformer}
 	unless defined $parsed{artist};
     $self->{parsed} = \%parsed;
     $self->return_parsed($what);
 }
 
-for my $elt ( qw( title track artist album comment year genre ) ) {
+for my $elt ( qw( title track artist album comment year genre cddb_id cdindex_id ) ) {
   no strict 'refs';
   *$elt = sub (;$) {
     my $self = shift;

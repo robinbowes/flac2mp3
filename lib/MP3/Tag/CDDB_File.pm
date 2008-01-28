@@ -5,7 +5,7 @@ use File::Basename;
 use File::Spec;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.9706";
+$VERSION="0.9709";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -126,6 +126,7 @@ sub return_parsed {
 	return $self->{parsed}{t_in_track}  if $what =~/^title_track/i;
 	return $self->{parsed}{extt}  if $what =~/^comment_track/i;
 	return $self->{parsed}{extd}  if $what =~/^comment_collection/i;
+	return $self->{parsed}{DISCID}  if $what =~/^cddb_id/i;
 	return $self->{parsed}{album}  if $what =~/^al/i;
 	return $self->{parsed}{artist} if $what =~/^a/i;
 	return $self->{parsed}{track}  if $what =~/^tr/i;
@@ -228,6 +229,7 @@ sub parse {
     @parsed{ qw( title artist album year comment track genre
 		 a_in_title t_in_track extt extd) } =
 	($tt, $aa, $t, $y, $c1, $track, $cat, $a_in_title, $t_in_track, $cc2, $cc1);
+    $parsed{DISCID} = $self->{fields}{DISCID};
     $self->{parsed} = \%parsed;
     $self->return_parsed($what);
 }
@@ -329,6 +331,13 @@ sub comment {
 
 sub genre {
     return shift->parse("genre");
+}
+
+for my $elt ( qw( cddb_id ) ) {
+  no strict 'refs';
+  *$elt = sub (;$) {
+    return shift->parse($elt);
+  }
 }
 
 1;

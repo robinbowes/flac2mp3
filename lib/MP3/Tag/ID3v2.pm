@@ -12,7 +12,7 @@ use File::Basename;
 
 use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3 $VERSION @ISA/;
 
-$VERSION="0.9708";
+$VERSION="0.9709";
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
@@ -670,7 +670,8 @@ sub as_bin ($;$$) {
 
     #ext header are not supported yet
     my $flags = chr(0);
-    $flags = chr(128) if $tag_data =~ s/\xFF(?=[\x00\xE0-\xFF])/\xFF\x00/g; # sync
+    $flags = chr(128) if ($self->get_config('id3v23_unsync'))->[0]
+      and $tag_data =~ s/\xFF(?=[\x00\xE0-\xFF])/\xFF\x00/g;     # sync flag
     $tag_data .= "\0"		# Terminated by 0xFF?
 	if length $tag_data and chr(0xFF) eq substr $tag_data, -1, 1;
     my $n_tsize = length $tag_data;
@@ -1780,7 +1781,7 @@ sub extract_data {
 			($found, $data) = ($data, "");
 		} elsif ( $rule->{len} == 0 ) {
 			if (exists $rule->{encoded} && $encoding !=0) {
-				($found, $data) = split /\x00\x00/, $data, 2;
+				($found, $data) = ($data =~ /^((?:..)*?)(?:\0\0(.*)|\z)/s);
 			} else {
 				($found, $data) = split /\x00/, $data, 2;
 			}
@@ -2138,6 +2139,14 @@ sub TMED {
     $text =~ s/  / /g;
 
     return $text;
+}
+
+for my $elt ( qw( cddb_id cdindex_id ) ) {
+  no strict 'refs';
+  *$elt = sub (;$) {
+    my $self = shift;
+    $self->frame_select('TXXX', $elt);
+  }
 }
 
 BEGIN {
