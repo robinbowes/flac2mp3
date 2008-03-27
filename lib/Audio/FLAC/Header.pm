@@ -1,11 +1,11 @@
 package Audio::FLAC::Header;
 
-# $Id: Header.pm 21 2007-12-02 18:01:56Z dsully $
+# $Id: Header.pm 22 2008-02-23 21:53:30Z dsully $
 
 use strict;
 use File::Basename;
 
-our $VERSION = '1.9';
+our $VERSION = '2.0';
 our $HAVE_XS = 0;
 
 # First four bytes of stream are always fLaC
@@ -164,7 +164,12 @@ sub application {
 
 sub picture {
 	my $self = shift;
-	my $type = shift || 3; # front cover
+	my $type = shift;
+	   $type = 3 unless defined ($type); # defaults to front cover 
+
+	if ($type eq 'all') {
+		return $self->{'allpictures'} if exists($self->{'allpictures'});
+	}
 
 	# if the picture block exists, return it's content
 	return $self->{'picture'}->{$type} if exists($self->{'picture'}->{$type});
@@ -694,6 +699,10 @@ sub _parsePicture {
 	$self->{'picture'}->{$pictureType}->{'depth'}       = $depth;
 	$self->{'picture'}->{$pictureType}->{'colorIndex'}  = $colorIndex;
 	$self->{'picture'}->{$pictureType}->{'imageData'}   = $imageData;
+	$self->{'picture'}->{$pictureType}->{'pictureType'} = $pictureType;
+
+	# Create array of hashes with picture data from all the picture metadata blocks
+	push ( @{$self->{'allpictures'}}, {%{$self->{'picture'}->{$pictureType}}} );
 
 	return 1;
 }
@@ -963,6 +972,10 @@ Returns the application block for the passed id.
 Returns a hash containing data from a PICTURE block if found.
 
 Defaults to type 3 - "Front Cover"
+
+When the passed variable is 'all', an array of hashes containing
+picture data from all PICTURE blocks is returned. Allows for multiple instances
+of the same picture type.
 
 =item * vendor_string( ) 
 
