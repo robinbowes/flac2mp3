@@ -25,6 +25,7 @@ use File::Temp qw/ cleanup /;
 use File::Which;
 use Getopt::Long;
 use MP3::Tag;
+use Proc::ParallelLoop;
 use Scalar::Util qw/ looks_like_number /;
 
 # ------- User-config options start here --------
@@ -52,6 +53,8 @@ our @lameargs = qw (
     --nohist
     --quiet
 );
+
+our $num_cores = 1;
 
 # -------- User-config options end here ---------
 
@@ -247,8 +250,10 @@ my ( $dstroot_volume, $dstroot_dirpath, $dstroot_file )
     = File::Spec->splitpath( $destdirroot, 1 );
 my @dstroot_dirs = File::Spec->splitdir($dstroot_dirpath);
 
-foreach my $src_file (@flac_files) {
-
+# use parallel processing to launch multiple transcoding processes
+pareach [ @flac_files ], sub {
+    my $src_file = shift;
+    
     # Get directories in src file and put in an array
     my ( $src_volume, $src_dirpath, $src_filename )
         = File::Spec->splitpath($src_file);
@@ -272,7 +277,7 @@ foreach my $src_file (@flac_files) {
     my $dst_dir = File::Spec->catpath( $dstroot_volume, $dst_dirpath, '' );
 
     convert_file( $src_file, $dst_dir, $dst_file );
-}
+}, { Max_Workers => $num_cores };
 
 1;
 
