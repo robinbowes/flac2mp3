@@ -93,10 +93,10 @@ our %MP3frames = (
     'MUSICBRAINZ_TRMID'       => 'TXXX',
     'MD5'                     => 'TXXX',
 
-    'REPLAYGAIN_TRACK_PEAK'   => 'TXXX',
-    'REPLAYGAIN_TRACK_GAIN'   => 'TXXX',
-    'REPLAYGAIN_ALBUM_PEAK'   => 'TXXX',
-    'REPLAYGAIN_ALBUM_GAIN'   => 'TXXX',
+    'REPLAYGAIN_TRACK_PEAK' => 'TXXX',
+    'REPLAYGAIN_TRACK_GAIN' => 'TXXX',
+    'REPLAYGAIN_ALBUM_PEAK' => 'TXXX',
+    'REPLAYGAIN_ALBUM_GAIN' => 'TXXX',
 );
 
 our %MP3frametexts = (
@@ -137,7 +137,8 @@ $SIG{INT} = \&INT_Handler;
 GetOptions(
     \%Options,   "quiet!",  "tagdiff",   "debug!",
     "tagsonly!", "force!",  "usage",     "help",
-    "version",   "pretend", "skipfile!", "skipfilename=s"
+    "version",   "pretend", "skipfile!", "skipfilename=s",
+    "processes=i"
 );
 
 # info flag is the inverse of --quiet
@@ -149,6 +150,12 @@ if ( !exists $::Options{skipfilename} ) {
 
 if ( !exists $::Options{skipfile} ) {
     $::Options{skipfile} = 1;
+}
+
+if ( !exists $::Options{processes} ) {
+
+    # if no user-option specified, use 1 as a default
+    $::Options{processes} = 1;
 }
 
 package main;
@@ -166,8 +173,9 @@ showversion() if ( $::Options{version} );
 showhelp()    if ( $::Options{help} );
 showusage()
     if ( !defined $srcdirroot
-    || !defined $destdirroot
-    || $::Options{usage} );
+    or !defined $destdirroot
+    or $::Options{processes} < 1
+    or $::Options{usage} );
 
 my $pretendString = '';
 $pretendString = '** Pretending ** '
@@ -243,6 +251,7 @@ if ( $::Options{info} ) {
         $files_word .= 's';
     }
     msg("$file_count flac $files_word found.\n");
+    msg("Using $::Options{processes} transcoding processes.\n");
 }
 
 # Get directories from destdirroot and put in an array
@@ -251,9 +260,9 @@ my ( $dstroot_volume, $dstroot_dirpath, $dstroot_file )
 my @dstroot_dirs = File::Spec->splitdir($dstroot_dirpath);
 
 # use parallel processing to launch multiple transcoding processes
-pareach [ @flac_files ], sub {
+pareach [@flac_files], sub {
     my $src_file = shift;
-    
+
     # Get directories in src file and put in an array
     my ( $src_volume, $src_dirpath, $src_filename )
         = File::Spec->splitpath($src_file);
@@ -277,7 +286,7 @@ pareach [ @flac_files ], sub {
     my $dst_dir = File::Spec->catpath( $dstroot_volume, $dst_dirpath, '' );
 
     convert_file( $src_file, $dst_dir, $dst_file );
-}, { Max_Workers => $num_cores };
+}, { Max_Workers => $::Options{processes} };
 
 1;
 
@@ -292,6 +301,7 @@ Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--
     --tagdiff	    Print source/dest tag values if different
     --noskipfile    Ignore any skip files
     --skipfilename  Specify the name of the skip file [default: flac2mp3.ignore]
+    --processes=n   Launch n parallel transcoding processes. Use with multi-core CPUs.
 EOT
     exit 0;
 }
