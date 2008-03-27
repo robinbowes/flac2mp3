@@ -58,6 +58,9 @@ our $num_cores = 1;
 
 # -------- User-config options end here ---------
 
+# use Id3 v2.3.0 tag separator by default
+our $TAG_SEPARATOR_DEFAULT = '/';
+
 our @flacargs = qw (
     --decode
     --stdout
@@ -135,10 +138,10 @@ our %Options;
 $SIG{INT} = \&INT_Handler;
 
 GetOptions(
-    \%Options,   "quiet!",  "tagdiff",   "debug!",
-    "tagsonly!", "force!",  "usage",     "help",
-    "version",   "pretend", "skipfile!", "skipfilename=s",
-    "processes=i"
+    \%Options,     "quiet!",  "tagdiff",   "debug!",
+    "tagsonly!",   "force!",  "usage",     "help",
+    "version",     "pretend", "skipfile!", "skipfilename=s",
+    "processes=i", "tagseparator=s"
 );
 
 # info flag is the inverse of --quiet
@@ -156,6 +159,12 @@ if ( !exists $::Options{processes} ) {
 
     # if no user-option specified, use 1 as a default
     $::Options{processes} = 1;
+}
+
+if ( !exists $::Options{tagseparator} ) {
+
+    # if no user-option specified, use 1 as a default
+    $::Options{tagseparator} = $TAG_SEPARATOR_DEFAULT;
 }
 
 package main;
@@ -293,15 +302,21 @@ pareach [@flac_files], sub {
 sub showusage {
     print <<"EOT";
 Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--noskipfile] [--skipfilename=<filename>] <flacdir> <mp3dir>
-    --pretend       Don't actually do anything
-    --quiet         Disable informational output to stdout
-    --debug         Enable debugging output. For developers only!
-    --tagsonly      Don't do any transcoding - just update tags
-    --force         Force transcoding and tag update even if not required
-    --tagdiff	    Print source/dest tag values if different
-    --noskipfile    Ignore any skip files
-    --skipfilename  Specify the name of the skip file [default: flac2mp3.ignore]
-    --processes=n   Launch n parallel transcoding processes. Use with multi-core CPUs.
+    --pretend        Don't actually do anything
+    --quiet          Disable informational output to stdout
+    --debug          Enable debugging output. For developers only!
+    --tagsonly       Don't do any transcoding - just update tags
+    --force          Force transcoding and tag update even if not required
+    --tagdiff	     Print source/dest tag values if different
+    --noskipfile     Ignore any skip files
+    --skipfilename   Specify the name of the skip file.
+                     Default: flac2mp3.ignore
+    --processes=n    Launch n parallel transcoding processes.
+                     Use with multi-core CPUs.
+                     Default: 1
+    --tagseparator=s Use "s" as the separator to join multiple instances of the
+                     same tag.
+                     Default: "/"
 EOT
     exit 0;
 }
@@ -349,8 +364,10 @@ sub convert_file {
                     map { $_ = fixUpFrame($_) } @{ $srcframes->{$frame} };
 
                     # join all values in null-separated list
-                    $frames_to_update{$frame}
-                        = join( "\000", @{ $srcframes->{$frame} } );
+                    $frames_to_update{$frame} = join(
+                        $::Options{tagseparator},
+                        @{ $srcframes->{$frame} }
+                    );
                 }
                 else {
                     carp "Unexpected source frame data type returned";
