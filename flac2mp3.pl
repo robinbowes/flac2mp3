@@ -683,7 +683,7 @@ sub write_tags {
         my $quoteddest = quotemeta $destfilename;
 
         $::Options{info}
-            && msg( $pretendString . "Writing tags to \"$quoteddest\"" );
+            && msg( $pretendString . "Writing tags to \"$destfilename\"" );
 
         if ( !$::Options{pretend} ) {
             my $mp3 = MP3::Tag->new($destfilename);
