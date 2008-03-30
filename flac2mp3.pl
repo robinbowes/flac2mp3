@@ -332,6 +332,25 @@ sub convert_file {
     $::Options{debug} && msg("srcfile: '$srcfilename'");
     $::Options{debug} && msg("destfile: '$destfilename'");
 
+    # get tags from flac file
+    my $srcframes = read_flac_tags($srcfilename);
+
+    # hash to hold tags that will be updated
+    my $frames_to_update = preprocess_flac_tags( $srcframes, $srcfilename );
+
+    # Initialise file processing flags
+    my $pflags = examine_destfile_tags( $destfilename, $frames_to_update );
+
+    # Transcode the file based on the processing flags
+    transcode_file( $srcfilename, $dst_dir, $destfilename, $pflags );
+
+    # Write the tags based on the processing flags
+    write_tags( $destfilename, $frames_to_update, $pflags );
+}
+
+sub read_flac_tags {
+    my $srcfilename = shift;
+
     # create object to access flac tags
     my $srcfile = Audio::FLAC::Header->new($srcfilename);
 
@@ -340,7 +359,15 @@ sub convert_file {
 
     $::Options{debug} && msg "Tags from source file:\n" . Dumper $srcframes;
 
-    # hash to hold tags that will be updated
+    # get MD5 checksdum from flac file and add to srcframes hash
+    $srcframes->{'MD5'} = $srcfile->info('MD5CHECKSUM');
+
+    return $srcframes;
+}
+
+sub preprocess_flac_tags {
+    my $srcframes   = shift;
+    my $srcfilename = shift;    # this is needed only for fixUpTrackNumber
     my %frames_to_update;
 
     # weed out tags not valid in destfile
@@ -376,9 +403,6 @@ sub convert_file {
         }
     }
 
-    # get MD5 checksdum from flac file and add to frames_to_update hash
-    $frames_to_update{'MD5'} = $srcfile->info('MD5CHECKSUM');
-
     # Fix up TRACKNUMBER
     if ( $frames_to_update{'TRACKNUMBER'} ) {
         my $fixeduptracknumber
@@ -394,6 +418,14 @@ sub convert_file {
         msg( Dumper \%frames_to_update );
 
     }
+
+    return \%frames_to_update;
+}
+
+sub examine_destfile_tags {
+    my $destfilename     = shift;
+    my $frames_ref       = shift;
+    my %frames_to_update = %$frames_ref;    # this is only to minimize changes
 
     # Initialise file processing flags
     my %pflags = (
@@ -530,6 +562,16 @@ sub convert_file {
         msg( Dumper \%frames_to_update );
     }
 
+    return \%pflags;
+}
+
+sub transcode_file {
+    my $srcfilename  = shift;
+    my $dst_dir      = shift;
+    my $destfilename = shift;
+    my $pflags_ref   = shift;
+    my %pflags       = %$pflags_ref;    # this is only to minimize changes
+
     # Building command used to convert file (tagging done afterwards)
     # Needs some work on quoting filenames containing special characters
     my $quotedsrc  = quotemeta $srcfilename;
@@ -620,12 +662,25 @@ sub convert_file {
                 . ( $::Options{pretend} ? 'set' : 'not set' ) );
     }
 
+    %$pflags_ref = %pflags;    # this is only to minimize changes
+}
+
+sub write_tags {
+    my $destfilename     = shift;
+    my $frames_ref       = shift;
+    my $pflags_ref       = shift;
+    my %frames_to_update = %$frames_ref;    # this is only to minimize changes
+    my %pflags           = %$pflags_ref;    # this is only to minimize changes
+
     # Write the tags
     if ($pflags{exists}
         && (   $pflags{tags}
             || $::Options{force} )
         )
     {
+
+        # Needs some work on quoting filenames containing special characters
+        my $quoteddest = quotemeta $destfilename;
 
         $::Options{info}
             && msg( $pretendString . "Writing tags to \"$quoteddest\"" );
