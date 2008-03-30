@@ -679,9 +679,6 @@ sub write_tags {
         )
     {
 
-        # Needs some work on quoting filenames containing special characters
-        my $quoteddest = quotemeta $destfilename;
-
         $::Options{info}
             && msg( $pretendString . "Writing tags to \"$destfilename\"" );
 
