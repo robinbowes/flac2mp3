@@ -532,24 +532,26 @@ sub convert_file {
 
     # Building command used to convert file (tagging done afterwards)
     # Needs some work on quoting filenames containing special characters
-    my $quotedsrc  = $srcfilename;
-    my $quoteddest = $destfilename;
+    my $quotedsrc  = quotemeta $srcfilename;
+    my $quoteddest = quotemeta $destfilename;
 
     if ( ( !$pflags{exists} || $pflags{md5} || $::Options{force} )
         && !$::Options{tagsonly} )
     {
 
         $::Options{info}
-            && msg( $pretendString . "Transcoding \"$quotedsrc\"" );
+            && msg( $pretendString . "Transcoding \"$srcfilename\"" );
 
         # Transcode to a temp file in the destdir.
         # Rename the file if the conversion completes sucessfully
         # This avoids leaving incomplete files in the destdir
         # If we're "pretending", don't create a File::Temp object
         my $tmpfilename;
+        my $quotedtmp;
         my $tmpfh;
         if ( $::Options{pretend} ) {
-            $tmpfilename = $quoteddest;
+            $tmpfilename = $destfilename;
+            $quotedtmp   = $quoteddest;
         }
         else {
 
@@ -564,10 +566,11 @@ sub convert_file {
                 SUFFIX => '.tmp'
             );
             $tmpfilename = $tmpfh->filename;
+            $quotedtmp   = quotemeta $tmpfilename;
         }
 
-        my $convert_command = "\"$flaccmd\" @flacargs \"$quotedsrc\""
-            . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
+        my $convert_command = "\"$flaccmd\" @flacargs $quotedsrc"
+            . "| \"$lamecmd\" @lameargs - $quotedtmp";
 
         $::Options{debug} && msg("$convert_command");
 
