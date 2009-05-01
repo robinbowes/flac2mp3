@@ -1,4 +1,4 @@
-#       $Id: Rule.pm 2482 2004-05-18 20:34:31Z richardc $
+#       $Id: /mirror/lab/perl/File-Find-Rule/lib/File/Find/Rule.pm 2102 2006-06-01T15:39:03.942922Z richardc  $
 
 package File::Find::Rule;
 use strict;
@@ -10,7 +10,7 @@ use Carp qw/croak/;
 use File::Find (); # we're only wrapping for now
 use Cwd;           # 5.00503s File::Find goes screwy with max_depth == 0
 
-$VERSION = '0.28';
+$VERSION = '0.30';
 
 # we'd just inherit from Exporter, but I want the colon
 sub import {
@@ -540,7 +540,7 @@ sub in {
 
     my $topdir;
     my $code = 'sub {
-        (my $path = $File::Find::name)  =~ s#^\./##;
+        (my $path = $File::Find::name)  =~ s#^(?:\./+)+##;
         my @args = ($_, $File::Find::dir, $path);
         my $maxdepth = $self->{maxdepth};
         my $mindepth = $self->{mindepth};
@@ -581,6 +581,10 @@ sub in {
     for my $path (@_) {
         # $topdir is used for relative and maxdepth
         $topdir = $path;
+        # slice off the trailing slash if there is one (the
+        # maxdepth/mindepth code is fussy)
+        $topdir =~ s{/?$}{}
+          unless $topdir eq '/';
         $self->_call_find( { %{ $self->{extras} }, wanted => $sub }, $path );
     }
     chdir $cwd;
@@ -732,7 +736,7 @@ and Andy Lester andy@petdance.com.
 
 =head1 COPYRIGHT
 
-Copyright (C) 2002,2003 Richard Clamp.  All Rights Reserved.
+Copyright (C) 2002, 2003, 2004, 2006 Richard Clamp.  All Rights Reserved.
 
 This module is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
