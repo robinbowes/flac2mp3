@@ -1,11 +1,11 @@
 package Audio::FLAC::Header;
 
-# $Id: Header.pm 22 2008-02-23 21:53:30Z dsully $
+# $Id: Header.pm 26 2008-11-08 23:37:45Z dsully $
 
 use strict;
 use File::Basename;
 
-our $VERSION = '2.0';
+our $VERSION = '2.3';
 our $HAVE_XS = 0;
 
 # First four bytes of stream are always fLaC
@@ -171,8 +171,14 @@ sub picture {
 		return $self->{'allpictures'} if exists($self->{'allpictures'});
 	}
 
+	# Also look for other types of images
+	# http://flac.sourceforge.net/format.html#metadata_block_picture
+	my @types = ($type, 4, 0, 5..20);
+
 	# if the picture block exists, return it's content
-	return $self->{'picture'}->{$type} if exists($self->{'picture'}->{$type});
+	for (@types) {
+		return $self->{'picture'}->{$_} if exists $self->{'picture'}->{$_};
+	}
 
 	# otherwise, return nothing
 	return undef;
@@ -181,7 +187,13 @@ sub picture {
 sub vendor_string {
 	my $self = shift;
 
-	return $self->{'vendor'} || "Audio::FLAC::Header $VERSION";
+	return $self->{'vendor'} || '';
+}
+
+sub set_separator {
+	my $self = shift;
+
+	$self->{'separator'} = shift;
 }
 
 sub _write_PP {
@@ -204,14 +216,8 @@ sub _write_PP {
 		}
 	}
 
-	# Create the contents of the vorbis comment metablock
-	my $vorbisComment = '';
-
-	# First, vendor tag (must be first)
-	_addStringToComment(\$vorbisComment, $self->{'tags'}->{'VENDOR'});
-
-	# Next, number of tags
-	$vorbisComment .= _packInt32($numTags);
+	# Create the contents of the vorbis comment metablock with the number of tags
+	my $vorbisComment .= _packInt32($numTags);
 
 	# Finally, each tag string (with length)
 	foreach (@tagString) {
@@ -452,9 +458,7 @@ sub _parseVorbisComments {
 		# Match the key and value
 		if ($tagStr =~ /^(.*?)=(.*?)[\r\n]*$/s) {
 
-			# Make the key uppercase
 			my $tkey = $1;
-			$tkey =~ tr/a-z/A-Z/;
 
 			# Stick it in the tag hash - and handle multiple tags
 			# of the same name.
@@ -976,6 +980,10 @@ Defaults to type 3 - "Front Cover"
 When the passed variable is 'all', an array of hashes containing
 picture data from all PICTURE blocks is returned. Allows for multiple instances
 of the same picture type.
+
+=item * set_separator( ) 
+
+For multi-value ID3 tags, set the separator string. Defaults to '/'
 
 =item * vendor_string( ) 
 
