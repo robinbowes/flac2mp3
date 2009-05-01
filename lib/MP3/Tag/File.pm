@@ -5,7 +5,7 @@ use Fcntl;
 use File::Basename;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.9708";
+$VERSION="1.00";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -71,7 +71,7 @@ sub open {
 	    $self->{FH} = *FH;
 	    binmode $self->{FH};
 	} else {
-	    warn "Open $self->filename() failed: $!\n";
+	    warn "Open `" . $self->filename() . "' failed: $!\n";
 	}
     }
     return exists $self->{FH};

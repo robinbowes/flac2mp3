@@ -3,7 +3,7 @@ package MP3::Tag::ParseData;
 use strict;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.9707";
+$VERSION="1.00";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -214,11 +214,12 @@ sub parse_one {
 # and which entries overwrite which ones; the user can reverse one of them
 # by sorting config('parse_data') in the opposite order; but not both.
 # Only practice can show whether our choice is correct...   How to customize?
-sub parse {
+
+sub parse {	# Later recipies can access results of earlier ones.
     my ($self,$what) = @_;
 
     return $self->{parsed}->{$what}	# Recalculate during recursive calls
-	if not $self->{parsing} and exists $self->{parsed};
+	if not $self->{parsing} and exists $self->{parsed}; # Do not recalc after finish
 
     my $data = $self->get_config('parse_data');
     return unless $data and @$data;
@@ -246,7 +247,7 @@ sub parse {
 	      delete $res->{$k};
 	      $self->{parent}->set_id3v2_frame($k);	# delete
 	    }
-	  } elsif ($k =~ /^\w{4}(\d{2,}|(?:\(([^)]*)\))?(?:\[(\\.|[^]\\]*)\])?)$/) {
+	  } elsif ($k =~ /^\w{4}(\d{2,}|(?:\(([^()]*(?:\([^()]+\)[^()]*)*)\))?(?:\[(\\.|[^]\\]*)\])?)$/) {
 	    my $r = delete $res->{$k};
 	    $r = undef unless length $r or $self->get_config('id3v2_frame_empty_ok')->[0];
 	    if (defined $r or $self->{parent}->_get_tag('ID3v2')) {

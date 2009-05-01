@@ -5,7 +5,7 @@ use File::Basename;
 use File::Spec;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.9709";
+$VERSION="1.00";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
@@ -16,7 +16,7 @@ MP3::Tag::CDDB_File - Module for parsing CDDB files.
 
 =head1 SYNOPSIS
 
-  my $db = MP3::Tag::CDDB_File->new($filename, $track);	# Name of MP3 file
+  my $db = MP3::Tag::CDDB_File->new($filename, $track);	# Name of audio file
   my $db = MP3::Tag::CDDB_File->new_from($record, $track); # Contents of CDDB 
 
   ($title, $artist, $album, $year, $comment, $track) = $db->parse();
@@ -25,11 +25,11 @@ see L<MP3::Tag>
 
 =head1 DESCRIPTION
 
-MP3::Tag::Inf is designed to be called from the MP3::Tag module.
+MP3::Tag::CDDB_File is designed to be called from the MP3::Tag module.
 
 It parses the content of CDDB file.
 
-The file is found in the same directory as MP3 file; the list of possible
+The file is found in the same directory as audio file; the list of possible
 file names is taken from the field C<cddb_files> if set by MP3::Tag config()
 method.
 
@@ -272,7 +272,9 @@ sub artist {
 
  $track = $db->track();
 
-Returns the track number, stored during object creation.
+Returns the track number, stored during object creation, or queried from
+the parent.
+
 
 =cut
 
@@ -281,7 +283,7 @@ sub track {
   return $self->{track} if defined $self->{track};
   return if $self->{recursive} or not $self->parent_ok;
   local $self->{recursive} = 1;
-  return $self->{parent}->track;
+  return $self->{parent}->track1;
 }
 
 =item year()
