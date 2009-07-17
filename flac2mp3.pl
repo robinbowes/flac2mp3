@@ -141,7 +141,7 @@ GetOptions(
     \%Options,     "quiet!",  "tagdiff",   "debug!",
     "tagsonly!",   "force!",  "usage",     "help",
     "version",     "pretend", "skipfile!", "skipfilename=s",
-    "processes=i", "tagseparator=s"
+    "processes=i", "tagseparator=s",       "lameargs=s",
 );
 
 # info flag is the inverse of --quiet
@@ -183,6 +183,9 @@ showusage()
     or !defined $destdirroot
     or $Options{processes} < 1
     or $Options{usage} );
+
+@lameargs = $Options{lameargs}
+    if $Options{lameargs};
 
 my $pretendString = '';
 $pretendString = '** Pretending ** '
@@ -299,13 +302,14 @@ pareach [@flac_files], sub {
 
 sub showusage {
     print <<"EOT";
-Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--noskipfile] [--skipfilename=<filename>] <flacdir> <mp3dir>
-    --pretend        Don't actually do anything
+Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--noskipfile] [--skipfilename=<filename>] [--lameargs='parameter-list'] <flacdir> <mp3dir>    --pretend        Don't actually do anything
     --quiet          Disable informational output to stdout
     --debug          Enable debugging output. For developers only!
     --tagsonly       Don't do any transcoding - just update tags
     --force          Force transcoding and tag update even if not required
     --tagdiff	     Print source/dest tag values if different
+    --lameargs='s'   specify parameter(string) to be passed to the LAME Encoder
+                     Default: "--noreplaygain --vbr-new -V 2 -h --nohist --quiet"
     --noskipfile     Ignore any skip files
     --skipfilename   Specify the name of the skip file.
                      Default: flac2mp3.ignore
@@ -612,7 +616,7 @@ sub transcode_file {
         my $convert_command = "\"$flaccmd\" @flacargs $quotedsrc"
             . "| \"$lamecmd\" @lameargs - $quotedtmp";
 
-        $Options{debug} && msg("$convert_command");
+        $Options{debug} && msg("transcode: $convert_command");
 
         # Convert the file (unless we're pretending}
         my $exit_value;
