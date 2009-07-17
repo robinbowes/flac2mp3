@@ -138,10 +138,10 @@ my %Options;
 $SIG{INT} = \&INT_Handler;
 
 GetOptions(
-    \%Options,     "quiet!",  "tagdiff",   "debug!",
-    "tagsonly!",   "force!",  "usage",     "help",
-    "version",     "pretend", "skipfile!", "skipfilename=s",
-    "processes=i", "tagseparator=s",       "lameargs=s",
+    \%Options,     "quiet!",         "tagdiff",   "debug!",
+    "tagsonly!",   "force!",         "usage",     "help",
+    "version",     "pretend",        "skipfile!", "skipfilename=s",
+    "processes=i", "tagseparator=s", "lameargs=s",
 );
 
 # info flag is the inverse of --quiet
