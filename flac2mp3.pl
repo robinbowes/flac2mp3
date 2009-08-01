@@ -394,7 +394,7 @@ sub preprocess_flac_tags {
                     # Fixup each value individually
                     map { $_ = fixUpFrame($_) } @{ $srcframes->{$frame} };
 
-                    # join all values in null-separated list
+                    # join all values, separated by the tagseparator string
                     $frames_to_update{$frame} = join(
                         $Options{tagseparator},
                         @{ $srcframes->{$frame} }
