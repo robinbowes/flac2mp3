@@ -359,6 +359,8 @@ sub read_flac_tags {
     # get tags from flac file
     my $srcframes = $srcfile->tags();
 
+    # convert all tagnames to upper case
+    %$srcframes = map { uc $_ => $srcframes->{$_} } keys %$srcframes;
     $Options{debug} && msg "Tags from source file:\n" . Dumper $srcframes;
 
     # get MD5 checksdum from flac file and add to srcframes hash
