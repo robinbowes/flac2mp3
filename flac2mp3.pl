@@ -129,8 +129,7 @@ my %MP3frametexts = (
 # In this case, we want to use the "Description" to check if this is the
 # correct frame.
 # We always grab the "Text" for the frame data.
-my %Complex_Frame_Keys
-    = ( 'COMM' => 'Description', 'TXXX' => 'Description', 'UFID' => '_Data' );
+my %Complex_Frame_Keys = ( 'COMM' => 'Description', 'TXXX' => 'Description', 'UFID' => '_Data' );
 
 my %Options;
 
@@ -138,9 +137,8 @@ my %Options;
 $SIG{INT} = \&INT_Handler;
 
 GetOptions(
-    \%Options,     "quiet!",         "tagdiff",   "debug!",
-    "tagsonly!",   "force!",         "usage",     "help",
-    "version",     "pretend",        "skipfile!", "skipfilename=s",
+    \%Options,     "quiet!",         "tagdiff", "debug!",  "tagsonly!", "force!",
+    "usage",       "help",           "version", "pretend", "skipfile!", "skipfilename=s",
     "processes=i", "tagseparator=s", "lameargs=s",
 );
 
@@ -229,8 +227,7 @@ $Options{info}
 # (following symlinks)
 
 my @flac_files;
-my $flac_list
-    = File::Find::Rule->extras( { follow => 1 } )->name(qr/\.flac$/i);
+my $flac_list = File::Find::Rule->extras( { follow => 1 } )->name(qr/\.flac$/i);
 if ( $Options{skipfile} ) {
     my $skip_list = File::Find::Rule->directory->exec(
         sub {
@@ -244,8 +241,7 @@ if ( $Options{skipfile} ) {
             }
         }
     )->prune->discard;
-    @flac_files
-        = sort File::Find::Rule->or( $skip_list, $flac_list )->in('.');
+    @flac_files = sort File::Find::Rule->or( $skip_list, $flac_list )->in('.');
 }
 else {
 
@@ -255,7 +251,7 @@ else {
 $Options{debug} && msg( Dumper(@flac_files) );
 
 if ( $Options{info} ) {
-    my $file_count = @flac_files;  # array in scalar context returns no. items
+    my $file_count = @flac_files;    # array in scalar context returns no. items
     my $files_word = 'file';
     if ( $file_count > 1 ) {
         $files_word .= 's';
@@ -265,8 +261,7 @@ if ( $Options{info} ) {
 }
 
 # Get directories from destdirroot and put in an array
-my ( $dstroot_volume, $dstroot_dirpath, $dstroot_file )
-    = File::Spec->splitpath( $destdirroot, 1 );
+my ( $dstroot_volume, $dstroot_dirpath, $dstroot_file ) = File::Spec->splitpath( $destdirroot, 1 );
 my @dstroot_dirs = File::Spec->splitdir($dstroot_dirpath);
 
 # use parallel processing to launch multiple transcoding processes
@@ -274,8 +269,7 @@ pareach [@flac_files], sub {
     my $src_file = shift;
 
     # Get directories in src file and put in an array
-    my ( $src_volume, $src_dirpath, $src_filename )
-        = File::Spec->splitpath($src_file);
+    my ( $src_volume, $src_dirpath, $src_filename ) = File::Spec->splitpath($src_file);
     my @src_dirs = File::Spec->splitdir($src_dirpath);
 
     # Join together dst_root and src_dirs
@@ -287,13 +281,11 @@ pareach [@flac_files], sub {
     my $dst_dirpath = File::Spec->catdir(@dst_dirs);
 
     # Get the basename of the src file
-    my ( $src_base, $src_dir, $src_ext )
-        = fileparse( $src_filename, qr{\.flac} );
+    my ( $src_base, $src_dir, $src_ext ) = fileparse( $src_filename, qr{\.flac} );
 
     # Now join it all together to get the complete path of the dest_file
-    my $dst_file = File::Spec->catpath( $dstroot_volume, $dst_dirpath,
-        $src_base . '.mp3' );
-    my $dst_dir = File::Spec->catpath( $dstroot_volume, $dst_dirpath, '' );
+    my $dst_file = File::Spec->catpath( $dstroot_volume, $dst_dirpath, $src_base . '.mp3' );
+    my $dst_dir  = File::Spec->catpath( $dstroot_volume, $dst_dirpath, '' );
 
     convert_file( $src_file, $dst_dir, $dst_file );
 }, { Max_Workers => $Options{processes} };
@@ -385,8 +377,7 @@ sub preprocess_flac_tags {
 
             # Check for normal string
             if ( !$src_frame_type ) {
-                $frames_to_update{$frame}
-                    = fixUpFrame( $srcframes->{$frame} );
+                $frames_to_update{$frame} = fixUpFrame( $srcframes->{$frame} );
             }
             else {
                 if ( $src_frame_type eq 'ARRAY' ) {
@@ -395,10 +386,7 @@ sub preprocess_flac_tags {
                     map { $_ = fixUpFrame($_) } @{ $srcframes->{$frame} };
 
                     # join all values, separated by the tagseparator string
-                    $frames_to_update{$frame} = join(
-                        $Options{tagseparator},
-                        @{ $srcframes->{$frame} }
-                    );
+                    $frames_to_update{$frame} = join( $Options{tagseparator}, @{ $srcframes->{$frame} } );
                 }
                 else {
                     carp "Unexpected source frame data type returned";
@@ -409,9 +397,7 @@ sub preprocess_flac_tags {
 
     # Fix up TRACKNUMBER
     if ( $frames_to_update{'TRACKNUMBER'} ) {
-        my $fixeduptracknumber
-            = fixUpTrackNumber( $frames_to_update{'TRACKNUMBER'},
-            $srcfilename );
+        my $fixeduptracknumber = fixUpTrackNumber( $frames_to_update{'TRACKNUMBER'}, $srcfilename );
         if ( $fixeduptracknumber ne $frames_to_update{'TRACKNUMBER'} ) {
             $frames_to_update{'TRACKNUMBER'} = $fixeduptracknumber;
         }
@@ -433,10 +419,10 @@ sub examine_destfile_tags {
 
     # Initialise file processing flags
     my %pflags = (
-        exists => 0,    # assume file doesn't exist
-        md5    => 1,    # and the md5 checksum doesn't match
-        tags   => 0,    # and the tags match (this will be set if tags
-                        # don't match
+        exists => 0,                        # assume file doesn't exist
+        md5    => 1,                        # and the md5 checksum doesn't match
+        tags   => 0,                        # and the tags match (this will be set if tags
+                                            # don't match
     );
 
     # if destfile already exists
@@ -445,9 +431,9 @@ sub examine_destfile_tags {
         $pflags{exists} = 1;
         $Options{debug} && msg("destfile exists: '$destfilename'");
 
-  # General approach:
-  #   Transcode the file if destfile md5 tag is different than the srcfile md5
-  #   Update the tags if tags are different
+        # General approach:
+        #   Transcode the file if destfile md5 tag is different than the srcfile md5
+        #   Update the tags if tags are different
 
         # Get tags from dst file and compare
         $Options{debug} && msg("Comparing tags");
@@ -469,21 +455,19 @@ sub examine_destfile_tags {
 
                 $Options{debug} && msg("frame is '$frame'");
 
-           # To do: Check the frame is valid
-           # Specifically, make sure the GENRE is one of the standard ID3 tags
+                # To do: Check the frame is valid
+                # Specifically, make sure the GENRE is one of the standard ID3 tags
                 my $method = $MP3frames{$frame};
 
                 $Options{debug} && msg("method is '$method'");
 
-           # Check for tag in destfile
-           # 'intact' option makes sure that any embedded '\0' are not mangled
-           # This is needed now we can handle multiple tags of the same type
-                my ( $tagname, @info )
-                    = $ID3v2->get_frames( $method, 'intact' );
+                # Check for tag in destfile
+                # 'intact' option makes sure that any embedded '\0' are not mangled
+                # This is needed now we can handle multiple tags of the same type
+                my ( $tagname, @info ) = $ID3v2->get_frames( $method, 'intact' );
 
                 $Options{debug}
-                    && msg( "values from id3v2 tags:\n" . Dumper \$tagname,
-                    \@info );
+                    && msg( "values from id3v2 tags:\n" . Dumper \$tagname, \@info );
 
                 my $dest_text = '';
 
@@ -491,21 +475,16 @@ sub examine_destfile_tags {
             TAGLOOP:
                 foreach my $tag_info (@info) {
                     if ( ref($tag_info) ) {
-                        my $cfname = $MP3frametexts{$frame};
-                        my $cfkey  = $Complex_Frame_Keys{$method};
+                        my $cfname = $MP3frametexts{$frame} || '';    # we may not know $frame
+                        my $cfkey = $Complex_Frame_Keys{$method};
 
                         if ( $$tag_info{$cfkey} eq $cfname ) {
                             $dest_text = $$tag_info{'Text'};
                             if ( $frame eq 'MD5' ) {
-                                $pflags{md5} = (
-                                    $frames_to_update{'MD5'} ne $dest_text );
+                                $pflags{md5} = ( $frames_to_update{'MD5'} ne $dest_text );
 
                                 if ( $Options{debug} ) {
-                                    msg("\$pflags{md5} is "
-                                            . (
-                                            $pflags{md5} ? 'set' : 'not set'
-                                            )
-                                    );
+                                    msg( "\$pflags{md5} is " . ( $pflags{md5} ? 'set' : 'not set' ) );
 
                                 }
                             }
@@ -522,8 +501,7 @@ sub examine_destfile_tags {
 
                 # Fix up TRACKNUMBER
                 if ( $frame eq 'TRACKNUMBER' ) {
-                    my $fixeduptracknumber
-                        = fixUpTrackNumber( $dest_text, $destfilename );
+                    my $fixeduptracknumber = fixUpTrackNumber( $dest_text, $destfilename );
                     if ( $fixeduptracknumber ne $dest_text ) {
                         $dest_text = $fixeduptracknumber;
                     }
@@ -615,8 +593,7 @@ sub transcode_file {
             $quotedtmp   = quotemeta $tmpfilename;
         }
 
-        my $convert_command = "\"$flaccmd\" @flacargs $quotedsrc"
-            . "| \"$lamecmd\" @lameargs - $quotedtmp";
+        my $convert_command = "\"$flaccmd\" @flacargs $quotedsrc" . "| \"$lamecmd\" @lameargs - $quotedtmp";
 
         $Options{debug} && msg("transcode: $convert_command");
 
@@ -662,8 +639,7 @@ sub transcode_file {
     if ( $Options{debug} ) {
         msg("pf_exists:    $pflags{exists}");
         msg("pf_tags:      $pflags{tags}");
-        msg( "\$Options{pretend}:   "
-                . ( $Options{pretend} ? 'set' : 'not set' ) );
+        msg( "\$Options{pretend}:   " . ( $Options{pretend} ? 'set' : 'not set' ) );
     }
 
     %$pflags_ref = %pflags;    # this is only to minimize changes
@@ -700,8 +676,8 @@ sub write_tags {
                 $Options{debug}
                     && msg("changedframe is '$frame'");
 
-           # To do: Check the frame is valid
-           # Specifically, make sure the GENRE is one of the standard ID3 tags
+                # To do: Check the frame is valid
+                # Specifically, make sure the GENRE is one of the standard ID3 tags
                 my $method = $MP3frames{$frame};
 
                 $Options{debug} && msg("method is $method");
@@ -717,21 +693,17 @@ sub write_tags {
                     # COMM, TXX, and UFID are Complex frames that must be
                     # treated differently.
                     if ( $method eq "COMM" ) {
-                        $mp3->{"ID3v2"}
-                            ->add_frame( $method, 'ENG', 'Short Text',
-                            $framestring );
+                        $mp3->{"ID3v2"}->add_frame( $method, 'ENG', 'Short Text', $framestring );
                     }
                     elsif ( $method eq "TXXX" ) {
                         my $frametext = $MP3frametexts{$frame};
                         $frametext = $frame
                             if ( !( defined($frametext) ) );
-                        $mp3->{"ID3v2"}->add_frame( $method, 0, $frametext,
-                            $framestring );
+                        $mp3->{"ID3v2"}->add_frame( $method, 0, $frametext, $framestring );
                     }
                     elsif ( $method eq 'UFID' ) {
                         my $frametext = $MP3frametexts{$frame};
-                        $mp3->{'ID3v2'}
-                            ->add_frame( $method, $framestring, $frametext );
+                        $mp3->{'ID3v2'}->add_frame( $method, $framestring, $frametext );
                     }
                     else {
                         $mp3->{"ID3v2"}->add_frame( $method, $framestring );
@@ -743,8 +715,8 @@ sub write_tags {
 
             $mp3->close();
 
-# should we optionally reset the destfile timestamp to the same as the srcfile
-# utime $srcstat->mtime, $srcstat->mtime, $destfilename;
+            # should we optionally reset the destfile timestamp to the same as the srcfile
+            # utime $srcstat->mtime, $srcstat->mtime, $destfilename;
         }
     }
 }
@@ -759,8 +731,7 @@ sub utf8toLatin1 {
 
     # Don't run the substitution on an empty string
     if ($data) {
-        $data
-            =~ s/([\xC0-\xDF])([\x80-\xBF])/chr(ord($1)<<6&0xC0|ord($2)&0x3F)/eg;
+        $data =~ s/([\xC0-\xDF])([\x80-\xBF])/chr(ord($1)<<6&0xC0|ord($2)&0x3F)/eg;
         $data =~ s/[\xE2][\x80][\x99]/'/g;
     }
 
