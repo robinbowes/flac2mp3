@@ -211,39 +211,7 @@ $Options{info}
 # Now look for files in the current directory
 # (following symlinks)
 
-my @flac_files;
-my $flac_list = File::Find::Rule->extras( { follow => 1 } )->name(qr/\.flac$/i);
-if ( $Options{skipfile} ) {
-    my $skip_list = File::Find::Rule->directory->exec(
-        sub {
-            my ( $fname, $fpath, $frpath ) = @_;
-            ### FIXME - need to use a platform neutral way to do this join
-            if ( -f "$frpath/$Options{skipfilename}" ) {
-                return 1;
-            }
-            else {
-                return 0;
-            }
-        }
-    )->prune->discard;
-    @flac_files = sort File::Find::Rule->or( $skip_list, $flac_list )->in('.');
-}
-else {
-
-    @flac_files = sort $flac_list ->in('.');
-}
-
-$Options{debug} && msg( Dumper(@flac_files) );
-
-if ( $Options{info} ) {
-    my $file_count = @flac_files;    # array in scalar context returns no. items
-    my $files_word = 'file';
-    if ( $file_count > 1 ) {
-        $files_word .= 's';
-    }
-    msg("$file_count flac $files_word found.\n");
-    msg("Using $Options{processes} transcoding processes.\n");
-}
+my @flac_files = @{find_files( qr/\.flac$/i )};
 
 # Get directories from destdirroot and put in an array
 my ( $dstroot_volume, $dstroot_dirpath, $dstroot_file ) = File::Spec->splitpath( $destdirroot, 1 );
@@ -276,6 +244,43 @@ pareach [@flac_files], sub {
 }, { Max_Workers => $Options{processes} };
 
 1;
+
+sub find_files {
+    my $regex = shift;
+
+    my @found_files;
+
+    my $found_list = File::Find::Rule->extras( { follow => 1 } )->name($regex);
+    if ( $Options{skipfile} ) {
+        my $skip_list = File::Find::Rule->directory->exec(
+            sub {
+                my ( $fname, $fpath, $frpath ) = @_;
+                ### FIXME - need to use a platform neutral way to do this join
+                if ( -f "$frpath/$Options{skipfilename}" ) {
+                    return 1;
+                }
+                else {
+                    return 0;
+                }
+            }
+        )->prune->discard;
+        @found_files = sort File::Find::Rule->or( $skip_list, $found_list )->in('.');
+    }
+    else {
+
+        @found_files = sort $found_list ->in('.');
+    }
+
+    $Options{debug} && msg( Dumper(@found_files) );
+
+    if ( $Options{info} ) {
+        my $file_count = scalar @found_files;
+        msg("Found $file_count flac file" . ($file_count > 1 ? 's' : '' . "\n"));
+        msg("Using $Options{processes} transcoding process" . ($Options{processes} > 1 ? 'es' : '' . "\n"));
+    }
+
+    return \@found_files;
+}
 
 sub showusage {
     print <<"EOT";
