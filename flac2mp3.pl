@@ -61,6 +61,9 @@ my $num_cores = 1;
 # use Id3 v2.3.0 tag separator by default
 my $TAG_SEPARATOR_DEFAULT = '/';
 
+# Use one process by default
+my $NUM_PROCESSES_DEFAULT = 1;
+
 my @flacargs = qw (
     --decode
     --stdout
@@ -131,10 +134,16 @@ my %MP3frametexts = (
 # We always grab the "Text" for the frame data.
 my %Complex_Frame_Keys = ( 'COMM' => 'Description', 'TXXX' => 'Description', 'UFID' => '_Data' );
 
-my %Options;
-
 # Catch interupts (SIGINT)
 $SIG{INT} = \&INT_Handler;
+
+# Set default options
+my %Options = (
+    skipfilename => 'flac2mp3.ignore',
+    skipfile     => 1,
+    processes    => $NUM_PROCESSES_DEFAULT,
+    tagseparator => $TAG_SEPARATOR_DEFAULT
+);
 
 GetOptions(
     \%Options,     "quiet!",         "tagdiff", "debug!",  "tagsonly!", "force!",
@@ -145,32 +154,8 @@ GetOptions(
 # info flag is the inverse of --quiet
 $Options{info} = !$Options{quiet};
 
-if ( !exists $Options{skipfilename} ) {
-    $Options{skipfilename} = 'flac2mp3.ignore';
-}
-
-if ( !exists $Options{skipfile} ) {
-    $Options{skipfile} = 1;
-}
-
-if ( !exists $Options{processes} ) {
-
-    # if no user-option specified, use 1 as a default
-    $Options{processes} = 1;
-}
-
-if ( !exists $Options{tagseparator} ) {
-
-    # if no user-option specified, use 1 as a default
-    $Options{tagseparator} = $TAG_SEPARATOR_DEFAULT;
-}
-
 # Turn off output buffering (makes debugging easier)
 $| = 1;
-
-# Do I need to set the default value of any options?
-# Or does GetOptions handle it?
-# If I do, what's the "best" way to do it?
 
 my ( $srcdirroot, $destdirroot ) = @ARGV;
 
