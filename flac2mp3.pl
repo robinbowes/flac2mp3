@@ -12,10 +12,12 @@
 
 use warnings;
 use strict;
+use Carp;
+
 use FindBin;
 use lib "$FindBin::Bin/lib";
+
 use Audio::FLAC::Header;
-use Carp;
 use Data::Dumper;
 use File::Basename;
 use File::Find::Rule;
@@ -54,15 +56,13 @@ my @lameargs = qw (
     --quiet
 );
 
-my $num_cores = 1;
+# Use one process by default
+my $NUM_PROCESSES_DEFAULT = 1;
 
 # -------- User-config options end here ---------
 
 # use Id3 v2.3.0 tag separator by default
 my $TAG_SEPARATOR_DEFAULT = '/';
-
-# Use one process by default
-my $NUM_PROCESSES_DEFAULT = 1;
 
 my @flacargs = qw (
     --decode
@@ -157,13 +157,13 @@ $Options{info} = !$Options{quiet};
 # Turn off output buffering (makes debugging easier)
 $| = 1;
 
-my ( $srcdirroot, $destdirroot ) = @ARGV;
+my ( $source_root, $target_root ) = @ARGV;
 
 showversion() if ( $Options{version} );
 showhelp()    if ( $Options{help} );
 showusage()
-    if ( !defined $srcdirroot
-    or !defined $destdirroot
+    if ( !defined $source_root
+    or !defined $target_root
     or $Options{processes} < 1
     or $Options{usage} );
 
@@ -190,62 +190,59 @@ foreach my $cmd ( $flaccmd, $lamecmd ) {
 }
 
 # Convert directories to absolute paths
-$srcdirroot  = File::Spec->rel2abs($srcdirroot);
-$destdirroot = File::Spec->rel2abs($destdirroot);
+$source_root  = File::Spec->rel2abs($source_root);
+$target_root = File::Spec->rel2abs($target_root);
 
-die "Source directory not found: $srcdirroot\n"
-    unless -d $srcdirroot;
+die "Source directory not found: $source_root\n"
+    unless -d $source_root;
 
-# count all flac files in srcdir
+# count all flac files in source_dir
 # Display a progress report after each file, e.g. Processed 367/4394 files
 # Possibly do some timing and add a Estimated Time Remaining
 # Will need to only count files that are going to be processed.
 # Hmmm could get complicated.
 
-# Change directory into srcdirroot
-chdir $srcdirroot;
-
 $Options{info}
-    && msg( $pretendString . "Processing directory: $srcdirroot" );
+    && msg( $pretendString . "Processing directory: $source_root" );
 
-# Now look for files in the current directory
+# Now look for files in the source dir
 # (following symlinks)
 
-my @flac_files = @{find_files( qr/\.flac$/i )};
+my @flac_files = @{ find_files( $source_root, qr/\.flac$/i ) };
 
-# Get directories from destdirroot and put in an array
-my ( $dstroot_volume, $dstroot_dirpath, $dstroot_file ) = File::Spec->splitpath( $destdirroot, 1 );
-my @dstroot_dirs = File::Spec->splitdir($dstroot_dirpath);
+# Get directories from target_dir and put in an array
+my ( $target_root_volume, $target_root_path, $target_root_file ) = File::Spec->splitpath( $target_root, 1 );
+my @target_root_elements = File::Spec->splitdir($target_root_path);
 
 # use parallel processing to launch multiple transcoding processes
 pareach [@flac_files], sub {
-    my $src_file = shift;
+    my $source = shift;
 
-    # Get directories in src file and put in an array
-    my ( $src_volume, $src_dirpath, $src_filename ) = File::Spec->splitpath($src_file);
-    my @src_dirs = File::Spec->splitdir($src_dirpath);
+    # remove $source_dir from front of $src_file
+    my $target = $source;
+    $target =~ s{\Q$source_root/\E}{}xms;
 
-    # Join together dst_root and src_dirs
-    my @dst_dirs;
-    push @dst_dirs, @dstroot_dirs;
-    push @dst_dirs, @src_dirs;
+    # Get directories in target and put in an array
+    # Note: the filename is the source file name
+    my ( $target_volume, $target_path, $source_file ) = File::Spec->splitpath($target);
+    my @target_path_elements = File::Spec->splitdir($target_path);
 
-    # Join all the dst_dirs back together again
-    my $dst_dirpath = File::Spec->catdir(@dst_dirs);
+    # Add the dst_dirs to the dst root and join back together
+    $target_path = File::Spec->catdir( @target_root_elements, @target_path_elements );
 
-    # Get the basename of the src file
-    my ( $src_base, $src_dir, $src_ext ) = fileparse( $src_filename, qr{\.flac} );
+    # Get the basename of the dst file
+    my ( $target_base, $target_dir, $source_ext ) = fileparse( $source_file, qr{\Q.flac\E$}xmsi );
 
     # Now join it all together to get the complete path of the dest_file
-    my $dst_file = File::Spec->catpath( $dstroot_volume, $dst_dirpath, $src_base . '.mp3' );
-    my $dst_dir  = File::Spec->catpath( $dstroot_volume, $dst_dirpath, '' );
+    $target = File::Spec->catpath( $target_volume, $target_path, $target_base . '.mp3' );
 
-    convert_file( $src_file, $dst_dir, $dst_file );
+    convert_file( $source, $target );
 }, { Max_Workers => $Options{processes} };
 
 1;
 
 sub find_files {
+    my $path  = shift;
     my $regex = shift;
 
     my @found_files;
@@ -255,8 +252,7 @@ sub find_files {
         my $skip_list = File::Find::Rule->directory->exec(
             sub {
                 my ( $fname, $fpath, $frpath ) = @_;
-                ### FIXME - need to use a platform neutral way to do this join
-                if ( -f "$frpath/$Options{skipfilename}" ) {
+                if ( -f File::Spec->catdir( $frpath, $Options{skipfilename} ) ) {
                     return 1;
                 }
                 else {
@@ -264,19 +260,19 @@ sub find_files {
                 }
             }
         )->prune->discard;
-        @found_files = sort File::Find::Rule->or( $skip_list, $found_list )->in('.');
+        @found_files = sort File::Find::Rule->or( $skip_list, $found_list )->in($path);
     }
     else {
 
-        @found_files = sort $found_list ->in('.');
+        @found_files = sort $found_list ->in($path);
     }
 
     $Options{debug} && msg( Dumper(@found_files) );
 
     if ( $Options{info} ) {
         my $file_count = scalar @found_files;
-        msg("Found $file_count flac file" . ($file_count > 1 ? 's' : '' . "\n"));
-        msg("Using $Options{processes} transcoding process" . ($Options{processes} > 1 ? 'es' : '' . "\n"));
+        msg( "Found $file_count flac file" .                   ( $file_count > 1         ? 's'  : '' . "\n" ) );
+        msg( "Using $Options{processes} transcoding process" . ( $Options{processes} > 1 ? 'es' : '' . "\n" ) );
     }
 
     return \@found_files;
@@ -311,72 +307,71 @@ sub msg {
 }
 
 sub convert_file {
-    my ( $srcfilename, $dst_dir, $destfilename ) = @_;
+    my ( $source, $target ) = @_;
 
-    $Options{debug} && msg("srcfile: '$srcfilename'");
-    $Options{debug} && msg("destfile: '$destfilename'");
+    $Options{debug} && msg("source: '$source'");
+    $Options{debug} && msg("target: '$target'");
 
     # get tags from flac file
-    my $srcframes = read_flac_tags($srcfilename);
+    my $source_tags = read_flac_tags($source);
 
     # hash to hold tags that will be updated
-    my $frames_to_update = preprocess_flac_tags( $srcframes, $srcfilename );
+    my $tags_to_update = preprocess_flac_tags( $source_tags );
 
     # Initialise file processing flags
-    my $pflags = examine_destfile_tags( $destfilename, $frames_to_update );
+    my $pflags = examine_destfile_tags( $target, $tags_to_update );
 
     # Transcode the file based on the processing flags
-    transcode_file( $srcfilename, $dst_dir, $destfilename, $pflags );
+    transcode_file( $source, $target, $pflags );
 
     # Write the tags based on the processing flags
-    write_tags( $destfilename, $frames_to_update, $pflags );
+    write_tags( $target, $tags_to_update, $pflags );
 }
 
 sub read_flac_tags {
-    my $srcfilename = shift;
+    my $source = shift;
 
     # create object to access flac tags
-    my $srcfile = Audio::FLAC::Header->new($srcfilename);
+    my $source_header = Audio::FLAC::Header->new($source);
 
     # get tags from flac file
-    my $srcframes = $srcfile->tags();
+    my $source_tags = $source_header->tags();
 
     # convert all tagnames to upper case
-    %$srcframes = map { uc $_ => $srcframes->{$_} } keys %$srcframes;
-    $Options{debug} && msg "Tags from source file:\n" . Dumper $srcframes;
+    %$source_tags = map { uc $_ => $source_tags->{$_} } keys %$source_tags;
+    $Options{debug} && msg "Tags from source file:\n" . Dumper $source_tags;
 
     # get MD5 checksdum from flac file and add to srcframes hash
-    $srcframes->{'MD5'} = $srcfile->info('MD5CHECKSUM');
+    $source_tags->{'MD5'} = $source_header->info('MD5CHECKSUM');
 
-    return $srcframes;
+    return $source_tags;
 }
 
 sub preprocess_flac_tags {
-    my $srcframes   = shift;
-    my $srcfilename = shift;    # this is needed only for fixUpTrackNumber
-    my %frames_to_update;
+    my $source_tags   = shift;
+    my %tags_to_update;
 
     # weed out tags not valid in destfile
-    foreach my $frame ( keys %$srcframes ) {
+    foreach my $frame ( keys %$source_tags ) {
         if ( $MP3frames{$frame} ) {
 
             # Multiple comments with the same name are returned as an array
             # Check for that here and convert the array to a null-separated
             # list to be compatible with mp3 tags
-            my $src_frame_type = ref( $srcframes->{$frame} );
+            my $src_tag_type = ref( $source_tags->{$frame} );
 
             # Check for normal string
-            if ( !$src_frame_type ) {
-                $frames_to_update{$frame} = fixUpFrame( $srcframes->{$frame} );
+            if ( !$src_tag_type ) {
+                $tags_to_update{$frame} = fixUpFrame( $source_tags->{$frame} );
             }
             else {
-                if ( $src_frame_type eq 'ARRAY' ) {
+                if ( $src_tag_type eq 'ARRAY' ) {
 
                     # Fixup each value individually
-                    map { $_ = fixUpFrame($_) } @{ $srcframes->{$frame} };
+                    map { $_ = fixUpFrame($_) } @{ $source_tags->{$frame} };
 
                     # join all values, separated by the tagseparator string
-                    $frames_to_update{$frame} = join( $Options{tagseparator}, @{ $srcframes->{$frame} } );
+                    $tags_to_update{$frame} = join( $Options{tagseparator}, @{ $source_tags->{$frame} } );
                 }
                 else {
                     carp "Unexpected source frame data type returned";
@@ -386,20 +381,20 @@ sub preprocess_flac_tags {
     }
 
     # Fix up TRACKNUMBER
-    if ( $frames_to_update{'TRACKNUMBER'} ) {
-        my $fixeduptracknumber = fixUpTrackNumber( $frames_to_update{'TRACKNUMBER'}, $srcfilename );
-        if ( $fixeduptracknumber ne $frames_to_update{'TRACKNUMBER'} ) {
-            $frames_to_update{'TRACKNUMBER'} = $fixeduptracknumber;
+    if ( $tags_to_update{'TRACKNUMBER'} ) {
+        my $fixeduptracknumber = fixUpTrackNumber( $tags_to_update{'TRACKNUMBER'} );
+        if ( $fixeduptracknumber ne $tags_to_update{'TRACKNUMBER'} ) {
+            $tags_to_update{'TRACKNUMBER'} = $fixeduptracknumber;
         }
     }
 
     if ( $Options{debug} ) {
         msg("Tags we know how to deal with from source file:");
-        msg( Dumper \%frames_to_update );
+        msg( Dumper \%tags_to_update );
 
     }
 
-    return \%frames_to_update;
+    return \%tags_to_update;
 }
 
 sub examine_destfile_tags {
@@ -491,7 +486,7 @@ sub examine_destfile_tags {
 
                 # Fix up TRACKNUMBER
                 if ( $frame eq 'TRACKNUMBER' ) {
-                    my $fixeduptracknumber = fixUpTrackNumber( $dest_text, $destfilename );
+                    my $fixeduptracknumber = fixUpTrackNumber( $dest_text );
                     if ( $fixeduptracknumber ne $dest_text ) {
                         $dest_text = $fixeduptracknumber;
                     }
@@ -538,23 +533,25 @@ sub examine_destfile_tags {
 }
 
 sub transcode_file {
-    my $srcfilename  = shift;
-    my $dst_dir      = shift;
-    my $destfilename = shift;
-    my $pflags_ref   = shift;
-    my %pflags       = %$pflags_ref;    # this is only to minimize changes
+    my $source     = shift;
+    my $target     = shift;
+    my $pflags_ref = shift;
+    my %pflags     = %$pflags_ref;    # this is only to minimize changes
+
+    my ( $target_volume, $target_dir, $target_filename ) = File::Spec->splitpath($target);
+    my $dst_dir = File::Spec->catpath( $target_volume, $target_dir, '' );
 
     # Building command used to convert file (tagging done afterwards)
     # Needs some work on quoting filenames containing special characters
-    my $quotedsrc  = quotemeta $srcfilename;
-    my $quoteddest = quotemeta $destfilename;
+    my $quotedsrc  = quotemeta $source;
+    my $quoteddest = quotemeta $target;
 
     if ( ( !$pflags{exists} || $pflags{md5} || $Options{force} )
         && !$Options{tagsonly} )
     {
 
         $Options{info}
-            && msg( $pretendString . "Transcoding \"$srcfilename\"" );
+            && msg( $pretendString . "Transcoding \"$source\"" );
 
         # Transcode to a temp file in the destdir.
         # Rename the file if the conversion completes sucessfully
@@ -564,7 +561,7 @@ sub transcode_file {
         my $quotedtmp;
         my $tmpfh;
         if ( $Options{pretend} ) {
-            $tmpfilename = $destfilename;
+            $tmpfilename = $target;
             $quotedtmp   = $quoteddest;
         }
         else {
@@ -603,7 +600,7 @@ sub transcode_file {
             msg("$convert_command failed with exit code $exit_value");
 
             # delete the destfile if it exists
-            unlink $destfilename;
+            unlink $tmpfilename;
 
             # should check exit status of this command
 
@@ -615,8 +612,8 @@ sub transcode_file {
             # If we get here, assume the conversion has succeeded
             $tmpfh->unlink_on_destroy(0);
             $tmpfh->close;
-            croak "Failed to rename '$tmpfilename' to '$destfilename' $!"
-                unless rename( $tmpfilename, $destfilename );
+            croak "Failed to rename '$tmpfilename' to '$target' $!"
+                unless rename( $tmpfilename, $target );
 
             # the destfile now exists!
             $pflags{exists} = 1;
@@ -736,7 +733,7 @@ sub fixUpFrame {
 }
 
 sub fixUpTrackNumber {
-    my ( $trackNum, $filename ) = @_;
+    my $trackNum = shift;
 
     # Check TRACKNUMBER tag is not empty
     if ($trackNum) {
@@ -747,7 +744,7 @@ sub fixUpTrackNumber {
         }
         else {
             $Options{info}
-                && msg("TRACKNUMBER not numeric in $filename");
+                && msg('TRACKNUMBER not numeric');
         }
     }
     return $trackNum;
