@@ -15,7 +15,7 @@ use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3
 	     %back_splt %embedded_Descr
 	    /;
 
-$VERSION="1.00";
+$VERSION="1.11";
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
@@ -582,7 +582,7 @@ sub build_tag {
 	    #compress data if this is wanted
 	    if ($frame->{flags}->{compression} || $self->{flags}->{compress_all}) {
 		    $flags{compression} = 1;
-		    $data = pack("N", length($data)) . compress $data unless $frame->flags->{unchanged};
+		    $data = pack("N", length($data)) . compress $data unless $frame->{flags}->{unchanged};
 	    }
 
 	    #encrypt data if this is wanted
@@ -987,11 +987,16 @@ present.
 =cut 
 
 # 0 = latin1 (effectively: unknown)
-# 1 = UTF-16 with BOM
+# 1 = UTF-16 with BOM	(we always write UTF-16le to cowtow to M$'s bugs)
 # 2 = UTF-16be, no BOM
 # 3 = UTF-8
-my @enc_types = qw( iso-8859-1 UTF-16 UTF-16BE utf8 );
+my @dec_types = qw( iso-8859-1 UTF-16   UTF-16BE utf8 );
+my @enc_types = qw( iso-8859-1 UTF-16LE UTF-16BE utf8 );
 my @tail_rex;
+
+# Actually, disable this code: it always triggers unsync...
+my $use_utf16le = $ENV{MP3TAG_USE_UTF_16LE};
+@enc_types = @dec_types unless $use_utf16le;
 
 sub _add_frame {
     my ($self, $split, $fname, @data) = @_;
@@ -1090,7 +1095,7 @@ sub _add_frame {
 	if ($fs->{encoded}) {
 	  if ($encoding) {
 	    # 0 = latin1 (effectively: unknown)
-	    # 1 = UTF-16 with BOM
+	    # 1 = UTF-16 with BOM (we write UTF-16le to cowtow to M$'s bugs)
 	    # 2 = UTF-16be, no BOM
 	    # 3 = UTF-8
 	    require Encode;
@@ -1101,6 +1106,7 @@ sub _add_frame {
 	      $d = Encode::decode('UTF-8', $d);
 	      $d = Encode::encode($enc_types[$encoding], $d);
 	    }
+	    $d = "\xFF\xFE$d" if $use_utf16le and $encoding == 1;
 	  } elsif (not $self->{fixed_encoding}	# Now $encoding == 0...
 		   and $self->get_config1('id3v2_fix_encoding_on_edit')
 		   and $e = $self->botched_encoding()
@@ -1666,7 +1672,7 @@ sub _frame_select {		# if $extract_content false, return all found
     } elsif ($lang_special) {
       $languages = [$lang_special->[1]];
     } else {
-      $languages = $self->get_config('default_language');	# Array ref!
+      $languages = [@{$self->get_config('default_language')}]; # Copy to modify
     }
     my $format = get_format($fname);
     my $have_lang = grep $_->{name} eq $lang_field, @$format;
@@ -2246,11 +2252,11 @@ sub extract_data {	# Main sub for getting data from a frame
 			    # 3 = UTF-8
 			    require Encode;
 			    if ($decode_utf8) {
-			      $found = Encode::decode($enc_types[$encoding],
+			      $found = Encode::decode($dec_types[$encoding],
 						      $found);
 			    } elsif ($encoding < 3) {
 			      # Reencode in UTF-8
-			      $found = Encode::decode($enc_types[$encoding],
+			      $found = Encode::decode($dec_types[$encoding],
 						      $found);
 			      $found = Encode::encode('UTF-8', $found);
 			    }
