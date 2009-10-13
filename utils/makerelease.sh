@@ -11,7 +11,7 @@
 #    svn copy trunk tags/RELEASE-x.y.z
 #
 
-export VER="0.3.0rc2"
+export VER="0.3.0rc3"
 
 # Building a release
 # ==================
