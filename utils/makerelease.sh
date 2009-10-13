@@ -29,4 +29,4 @@ export VER="0.3.0rc2"
 	scp \
 		flac2mp3-${VER}.tar.gz \
 		flac2mp3-${VER}.zip \
-		root@robinbowes.com:/var/www/sites/robinbowes.com/projects/download/flac2mp3/
+		root@projects.robinbowes.com:/var/www/projects/htdocs/download/flac2mp3
