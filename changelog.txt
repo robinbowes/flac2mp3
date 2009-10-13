@@ -1,4 +1,6 @@
 v0.3.0
+ - Re-work & refactor the search/checking code
+ - Update to bundled CPAN modules (MP3::Tag 1.11, File::Which 1.09)
  - Use FLAC MD5 checksum to determine whether or not to transcode the file
  - Add "--pretend" option
  - Handle multiple tags of the same type, e.g. multiple Artist tags
