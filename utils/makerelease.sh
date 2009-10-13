@@ -11,13 +11,13 @@
 #    svn copy trunk tags/RELEASE-x.y.z
 #
 
-export VER="0.3.0rc1"
+export VER="0.3.0rc2"
 
 # Building a release
 # ==================
 #  - export release tag into temp dir
     svn export \
-        http://robinbowes.com/svn/flac2mp3/tags/RELEASE-${VER} \
+        http://projects.robinbowes.com/svn/flac2mp3/tags/RELEASE-${VER} \
         flac2mp3-${VER} &&
 #  - remove some dirs from the export so they aren't packaged
         rm -rf flac2mp3-${VER}/patches flac2mp3-${VER}/utils &&
@@ -26,7 +26,7 @@ export VER="0.3.0rc1"
 #  - create zip file (for windows users)
         zip -r9 flac2mp3-${VER}.zip flac2mp3-${VER} &&
 #  - copy to download directory
-	sudo cp \
+	scp \
 		flac2mp3-${VER}.tar.gz \
 		flac2mp3-${VER}.zip \
-		/var/www/sites/robinbowes.com/projects/download/flac2mp3/
+		root@robinbowes.com:/var/www/sites/robinbowes.com/projects/download/flac2mp3/
