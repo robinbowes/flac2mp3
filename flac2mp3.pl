@@ -19,6 +19,7 @@ use lib "$FindBin::Bin/lib";
 
 use Audio::FLAC::Header;
 use Data::Dumper;
+use Encode;
 use File::Basename;
 use File::Find::Rule;
 use File::Path;
@@ -713,21 +714,9 @@ sub INT_Handler {
     die "Exited with SIG$signame\n";
 }
 
-sub utf8toLatin1 {
-    my $data = shift;
-
-    # Don't run the substitution on an empty string
-    if ($data) {
-        $data =~ s/([\xC0-\xDF])([\x80-\xBF])/chr(ord($1)<<6&0xC0|ord($2)&0x3F)/eg;
-        $data =~ s/[\xE2][\x80][\x99]/'/g;
-    }
-
-    return $data;
-}
-
 sub fixUpFrame {
     my ($frameValue) = @_;
-    $frameValue = utf8toLatin1($frameValue);
+    $frameValue = decode("utf8", $frameValue);
     $frameValue =~ s/ +$//;
     return $frameValue;
 }
