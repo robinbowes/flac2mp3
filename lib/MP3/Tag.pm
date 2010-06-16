@@ -41,7 +41,7 @@ use MP3::Tag::ImageExifTool;
 use MP3::Tag::LastResort;
 
 use vars qw/$VERSION @ISA/;
-$VERSION="1.11";
+$VERSION="1.12";
 @ISA = qw( MP3::Tag::User MP3::Tag::Site MP3::Tag::Vendor
 	   MP3::Tag::Implemenation ); # Make overridable
 *config = \%MP3::Tag::Implemenation::config;
@@ -130,7 +130,7 @@ MP3::Tag - Module for reading tags of MP3 audio files
   $mp3->title_set('New title');		# Edit in-memory copy
   $mp3->select_id3v2_frame_by_descr('TALB', 'New album name'); # Edit in memory
   $mp3->select_id3v2_frame_by_descr('RBUF', $n1, $n2, $n3);    # Edit in memory
-  $mp3->update_tags(year => 1866);	# Edit in-memory, and commit to file
+  $mp3->update_tags({year => 1866});	# Edit in-memory, and commit to file
   $mp3->update_tags();			# Commit to file
 
 The following low-level access code is discouraged; better use title()
@@ -619,9 +619,11 @@ for my $elt ( qw( title track artist album comment year genre ) ) {
   }
 }
 
+my %hide_meth = qw(mime_type _mime_type);
+
 for my $elt ( qw( cddb_id cdindex_id height width bit_depth mime_type img_type _duration ) ) {
   no strict 'refs';
-  *$elt = sub (;$) {
+  *{$hide_meth{$elt} || $elt} = sub (;$) {
     my $self = shift;
     return $self->auto_field($elt, @_);
   }
@@ -667,9 +669,29 @@ sub aspect_ratio ($) {
   $w/$h;
 }
 
+sub aspect_ratio_inverted ($) {
+  my $r = shift->aspect_ratio or return;
+  1/$r;
+}
+
 sub aspect_ratio3 ($) {
   my $r = shift->aspect_ratio();
   $r ? sprintf '%.3f', $r : $r;
+}
+
+sub mime_Pretype ($) {
+  my $r = shift->mime_type();
+  $r =~ s,/.*,,s;
+  ucfirst lc $r
+}
+
+sub mime_type ($) {		# _mime_type goes thru auto_field 'mime_type'
+  my $self = shift;
+  $self->get_tags;
+  my $h = $self->{header};
+  my $t = $h && $self->_Data_to_MIME($h, 1);
+  return $t if $t;
+  return($self->_mime_type() || 'audio/mpeg'); # XXXX Can do much better
 }
 
 =item genre()
@@ -1554,14 +1576,15 @@ sub copy_id3v2_frames {
   $from->copy_frames($to->{ID3v2}, $overwrite, $keep_flags, $f_ids);
 }
 
-sub _Data_to_MIME ($$) {
-    goto &MP3::ID3v2::_Data_to_MIME
+sub _Data_to_MIME ($$;$) {
+    goto &MP3::Tag::ID3v2::_Data_to_MIME
 }
 
 =item _Data_to_MIME
 
 Internal method to extract MIME type from a string the image file content.
-Returns C<application/octet-stream> for unrecognized data.
+Returns C<application/octet-stream> for unrecognized data
+(unless extra TRUE argument is given).
 
   $format = $id3->_Data_to_MIME($data);
 
@@ -1716,15 +1739,26 @@ The short ESCAPEs are replaced by
 		o	channel_mode
 		u	frames
 
-		h	height	(these 4 for image files, Image::Size required)
+		h	height	(these 3 for image files, Image::Size or Image::ExifData required)
 		w	width
-		mT	mime_type
 		iT	img_type
-		aR	aspect_ratio3 (3 decimal places after the dot)
+		mT	mime_type
+		mP	mime_Pretype (the capitalized first part of mime_type)
+		aR	aspect_ratio (width/height)
+		a3	aspect_ratio3 (3 decimal places after the dot)
+		aI	aspect_ratio_inverted (height/width)
 		bD	bit_depth
 
-Additionally, ESCAPE can be a string enclosed in curly braces C<{}>.
-The interpretation is the following:
+		aC	collection artist (from CDDB_File)
+		tT	track title (from CDDB_File)
+		cC	collection comment (from CDDB_File)
+		cT	track comment (from CDDB_File)
+		iC	CDDB id
+		iI	CDIndex id
+
+(Multi-char escapes must be inclosed in braces, as in C<%{SML}> or C<%.5{aR}>.
+
+Additional multi-char escapes are interpretated is follows:
 
 =over 4
 
@@ -1734,11 +1768,6 @@ Names of ID3v2 frames are replaced by their text values (empty for missing
 frames).
 
 =item *
-
-Strings C<aC>, C<tT>, C<cC>, C<cT> are replaced by the collection artist,
-track title, collection comment, and track comment as obtained from
-CDDB_File.  Strings C<iC>, C<iI> are replaced by the CDDB and CDIndex
-ids as obtained from CDDB_File or Inf.
 
 Strings C<n1> and C<n2> are replaced by "pure track number" and
 "max track number" (this allows for both formats C<N1> and C<N1/N2> of "track",
@@ -1878,7 +1907,9 @@ does not contain C<i>, VALUE should have C<{}> and C<\> backwacked.
 
 For strings of the form C<T[FORMAT]>, I<FORMAT> is split on comma, and
 the resulting list of formats is used to convert the duration of the
-audio to a string using the method format_time().
+audio to a string using the method format_time().  (E.g.,
+C<%{T[=E<gt>m,?H:,m]}> would print duration in hours and minutes rounded
+to the closest minute.)
 
 =back
 
@@ -1970,9 +2001,12 @@ my %trans = qw(	t	title
 
 		h	height
 		w	width
-		mT	mime_type
 		iT	img_type
-		aR	aspect_ratio3
+		mT	mime_type
+		mP	mime_Pretype
+		aR	aspect_ratio
+		a3	aspect_ratio3
+		aI	aspect_ratio_inverted
 		bD	bit_depth
 
 		v	mpeg_version
@@ -2013,18 +2047,18 @@ my %trans = qw(	t	title
 
 my $frame_bra =			# FRAM | FRAM03 | FRAM(lang)[
   qr{\w{4}(?:(?:\d\d)|(?:\([^()]*(?:\([^()]+\)[^()]*)*\))?(?:(\[)|(?=[\}:|&])))}s; # 1 group for begin-descr
-# used with offset by 1: 2: fill, 3: same, 4: $left, 5..6 width, 5: key
+# used with offset by 1: 2: fill, 3: same, 4: $left, 5..6 width, 7: key
 my $pat_rx = qr/^%(?:(?:\((.)\)|([^-.1-9%a-zA-Z]))?(-)?(\d+))?(?:\.(\d+))?([talgcynfFeEABDNvLrqQSmsCpouMHwh{%])/s;
 # XXXX Partially repeated below, search for `talgc'??? vLrqQSmsCpouMH miss???
 
-my $longer_f = qr(a[CR]|tT|c[TC]|i[DIT]|n[012]|m[A12T]|bD);
+my $longer_f = qr(a[3CRI]|tT|c[TC]|i[DIT]|n[012]|m[A12TP]|bD);
 # (a[CR]|tT|c[TC]|[mMS]L|SML|i[DIT]|n[012]|m[A12T]|bD)
 #  a[CR]|tT|c[TC]|i[DIT]|n[012]|m[A12T]|bD
 
 # $upto TRUE: parse the part including $upto char
 # Very restricted backslashitis: only $upto and \ before $upto-or-end
 # $upto defined but FALSE: interpolate only one %-escape.
-# Anyway: $_[1] is modified to remove interplated part.
+# Anyway: $_[1] is modified to remove interpolated part.
 sub _interpolate ($$;$$) {
     # goto &interpolate_flags if @_ == 3;
     my ($self, undef, $upto, $skip) = @_; # pattern is modified, so is $_[1]
@@ -2233,7 +2267,27 @@ sub _interpolate ($$;$$) {
 	    $str = $self->$meth();
 	}
 	$str = '' unless defined $str;
-	$str = substr $str, 0, $maxwidth if defined $maxwidth;
+	if (defined $maxwidth and length $str > $maxwidth) {
+	  if ($str =~ /^(?:\+|(\-))?(\d*)(\.\d*)?$/) {
+	    if (length($1 || '') + length $2 <= $maxwidth) {
+	      my $w = $maxwidth - length $2 - length($1 || '');
+	      $w-- if $w;	# Take into account decimal point...
+	      $str = sprintf '%.*f', $w, $str
+	    } else {		# Might be a long integer benefiting from %g
+	      my($w, $s0) = ($maxwidth, $str);
+	      while ($w >= 1) {
+		$str = sprintf '%.*g', $w, $s0;
+		$str =~ s/(^|(?<=[-+]))0+|(?<=e)\+//gi; # 1e+07 to 1e7
+		last if length $str <= $maxwidth;
+		$w--
+	      }
+	      $str = $s0 if length $str > length $s0; # 12 vs 1e1
+	      $str = substr $str, 0, $maxwidth;	# 1e as a truncation of 1234 is better than 12...
+	    }
+	  } else {
+	    $str = substr $str, 0, $maxwidth;
+	  }
+	}
 	if (defined $minwidth) {
 	  $fill = ' ' unless defined $fill;
 	  if ($left) {
@@ -2737,7 +2791,7 @@ L<MP3::Info|MP3::Info> is installed.  Since these calls are
 redirectoed to the module L<MP3::Info|MP3::Info>, the returned info is
 subject to the same restrictions as the method get_mp3info() of this
 module; in particular, the information about the frame number and
-frame length is only approximate
+frame length is only approximate.
 
 vbr_scale() is from the VBR header; total_secs() is not necessarily an
 integer, but total_secs_int() and total_secs_trunc() are (first is
@@ -2858,20 +2912,36 @@ second one will use 3 digit-format after a point, the first one will
 not print the trailing 0s of milliseconds.  The first one uses C<:> as
 separator of hours and minutes, the second one will use C<h m>.
 
+Optionally, the first element of the array may be of the form
+C<=E<gt>U>, here C<U> is one of C<h m s>.  In this case, duration is
+rounded to closest hours, min or second before processing.  (E.g.,
+1.7sec would print as C<1> with C<@format>s above, but would print as
+C<2> if rounded to seconds.)
+
 =cut
+
+my %Unit = qw( h 3600 m 60 s 1 );
 
 sub format_time {
   my ($self, $time) = (shift, shift);
   $self = $self->new_fake() unless ref $self;
+  local $self->{ms} =  $self->{ms}; # Make modifiable
   local $self->{ms} = int($time * 1000 + 0.5) if defined $time;
-  my ($out, %have) = '';
+  my ($out, %have, $c) = '';
   for my $f (@_) {
     $have{$+}++ if $f =~ /^\??({([^{}]+)}|.)/;
   }
   for my $f (@_) {
+    if (!$c++ and $f =~ /^=>(\w)$/) {
+      my $u = $Unit{$1} or die "Unexpected unit of time for rounding: `$1'";
+      $time = $self->total_secs unless defined $time;
+      $time = $u * int($time/$u + 0.5);
+      $self->{ms} = 1000 * $time;
+      next;
+    }
     my $ff = $f;		# Modifiable
     my $opt = ($ff =~ s/^\?//);
-    $ff =~ s/^({[^{}]+}|\w)// or die "<$f>";
+    $ff =~ s/^({[^{}]+}|\w)// or die "unexpected time format: <<$f>>";
     my ($what, $format) = ($1, '');
     if ($opt) {
       if ($what eq 'H') {

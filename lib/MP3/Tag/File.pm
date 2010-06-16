@@ -201,7 +201,7 @@ or year. If $what is defined parse_filename() will return only this element.
 
 If $filename is defined this filename will be used and not the real
 filename which was set by L<MP3::Tag> with
-C<MP3::Tag->new($filename)>.  Otherwise the actual filename is used
+C<MP3::Tag-E<gt>new($filename)>.  Otherwise the actual filename is used
 (subject to configuration variable C<decode_encoding_filename>).
 
 Following formats will be hopefully recognized:

@@ -15,7 +15,7 @@ use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3
 	     %back_splt %embedded_Descr
 	    /;
 
-$VERSION="1.11";
+$VERSION = "1.12";
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
@@ -61,7 +61,7 @@ See L<MP3::Tag|according documentation> for information on the above used functi
   $frameIDs_hash = $id3v2->get_frame_ids('truename');
 
   foreach my $frame (keys %$frameIDs_hash) {
-      my ($name, @info) = $id3v2->get_frame($frame);
+      my ($name, @info) = $id3v2->get_frames($frame);
       for my $info (@info) {
 	  if (ref $info) {
 	      print "$name ($frame):\n";
@@ -1092,6 +1092,20 @@ sub _add_frame {
 	} elsif (exists $fs->{mlen} and $fs->{mlen}>0) {
 	    $d .= " " x ($fs->{mlen}-length($d)) if length($d) < $fs->{mlen};
 	}
+        if (exists $fs->{re2b}) {
+          while (my ($pat, $rep) = each %{$fs->{re2b}}) {
+            $d =~ s/$pat/$rep/gis;
+          }
+        }
+        if (exists $fs->{func_back}) {
+	  $d = $fs->{func_back}->($d);
+	} elsif (exists $fs->{func}) {
+	  if ($fs->{small_max}) { # Allow the old way (byte) and a number
+	    # No conflict possible: byte is always smaller than ord '0'
+	    $d = pack 'C', $d if $d =~ /^\d+$/;
+	  }
+	  $d = $self->__format_field($fname, $fs->{name}, $d)
+	}
 	if ($fs->{encoded}) {
 	  if ($encoding) {
 	    # 0 = latin1 (effectively: unknown)
@@ -1115,20 +1129,6 @@ sub _add_frame {
 	    # with botched_encoding, need to unbotch...
 	    $self->fix_frames_encoding();
 	  }
-	}
-        if (exists $fs->{re2b}) {
-          while (my ($pat, $rep) = each %{$fs->{re2b}}) {
-            $d =~ s/$pat/$rep/gis;
-          }
-        }
-        if (exists $fs->{func_back}) {
-	  $d = $fs->{func_back}->($d);
-	} elsif (exists $fs->{func}) {
-	  if ($fs->{small_max}) { # Allow the old way (byte) and a number
-	    # No conflict possible: byte is always smaller than ord '0'
-	    $d = pack 'C', $d if $d =~ /^\d+$/;
-	  }
-	  $d = $self->__format_field($fname, $fs->{name}, $d)
 	}
 	$datastring .= $d;
     }
@@ -1549,8 +1549,9 @@ or L<frame_select_by_descr()>.)
 
 =item _Data_to_MIME
 
-Internal method to extract MIME type from a string the image file content.
-Returns C<application/octet-stream> for unrecognized data.
+Internal method to extract MIME type from a string the image file
+content.  Returns C<application/octet-stream> for unrecognized data
+(unless extra TRUE argument is given).
 
   $format = $id3v2->_Data_to_MIME($data);
 
@@ -1565,9 +1566,12 @@ my %MT = ("\xff\xd8\xff\xe0" => 'image/jpeg', "MM\0*" => 'image/tiff',
 	   "II*\0" => 'image/tiff', "\x89PNG",
 	  qw(image/png GIF8 image/gif BM image/bmp));
 
-sub _Data_to_MIME ($$) {
-  my($self, $data) = (shift, shift);	# Fname, field name remain
-  $MT{substr $data, 0, 4} || $MT{substr $data, 0, 2} || 'application/octet-stream';
+sub _Data_to_MIME ($$;$) {
+  my($self, $data, $force) = (shift, shift, shift);  # Fname, field name remain
+  my $res = $MT{substr $data, 0, 4} || $MT{substr $data, 0, 2};
+  return $res if $res;
+  return 'application/octet-stream' unless $force;
+  return;
 }
 
 sub _frame_select {		# if $extract_content false, return all found
@@ -2001,7 +2005,7 @@ instead of using this function directly
 =cut
 
 sub new {
-    my ($class, $mp3obj, $create) = @_;
+    my ($class, $mp3obj, $create, $r_header) = @_;
     my $self={mp3=>$mp3obj};
     my $header=0;
     bless $self, $class;
@@ -2010,6 +2014,7 @@ sub new {
       $mp3obj->open or return unless $mp3obj->is_open;
       $mp3obj->seek(0,0);
       $mp3obj->read(\$header, 10);
+      $$r_header = $header if $r_header and 10 == length $header;
     }
     $self->{frame_start}=0;
     # default ID3v2 version
@@ -2081,7 +2086,9 @@ sub new {
 
 sub new_with_parent {
     my ($class, $filename, $parent) = @_;
-    return unless my $new = $class->new($filename, undef);
+    my $header;
+    my $new = $class->new($filename, undef, \$header);
+    ($header and $parent and $parent->[0]{header} = $header), return unless $new;
     $new->{parent} = $parent;
     $new;
 }
