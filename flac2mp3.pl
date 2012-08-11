@@ -215,8 +215,28 @@ my @flac_files = @{ find_files( $source_root, qr/\.flac$/i ) };
 my ( $target_root_volume, $target_root_path, $target_root_file ) = File::Spec->splitpath( $target_root, 1 );
 my @target_root_elements = File::Spec->splitdir($target_root_path);
 
+my $parallel_supported = $^O ne 'MSWin32' and $^O ne 'MSWin64';
+
+if (!$parallel_supported) { 
+    msg("Using 1 transcoding processes.\n");
+	if ($Options{processes} > 1) {
+		msg("(Multiple parallel processes are not supported on Windows systems.)\n");
+	}		
+	foreach my $src_file (@flac_files) {
+		path_and_conversion($src_file);
+	}
+}
+else {
+	# use parallel processing to launch multiple transcoding processes
+    msg("Using $Options{processes} transcoding processes.\n");
+	pareach [@flac_files], sub {
+	    my $src_file = shift;
+	    path_and_conversion($src_file);	    
+	}, { Max_Workers => $Options{processes} };
+}
+
 # use parallel processing to launch multiple transcoding processes
-pareach [@flac_files], sub {
+sub path_and_conversion{
     my $source = shift;
 
     # remove $source_dir from front of $src_file
@@ -238,7 +258,7 @@ pareach [@flac_files], sub {
     $target = File::Spec->catpath( $target_volume, $target_path, $target_base . '.mp3' );
 
     convert_file( $source, $target );
-}, { Max_Workers => $Options{processes} };
+};
 
 1;
 
@@ -273,7 +293,6 @@ sub find_files {
     if ( $Options{info} ) {
         my $file_count = scalar @found_files;
         msg( "Found $file_count flac file" .                   ( $file_count > 1         ? 's'  : '' . "\n" ) );
-        msg( "Using $Options{processes} transcoding process" . ( $Options{processes} > 1 ? 'es' : '' . "\n" ) );
     }
 
     return \@found_files;
@@ -292,7 +311,7 @@ Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--
     --noskipfile     Ignore any skip files
     --skipfilename   Specify the name of the skip file.
                      Default: flac2mp3.ignore
-    --processes=n    Launch n parallel transcoding processes.
+    --processes=n    Launch n parallel transcoding processes (does not work on Windows platform)
                      Use with multi-core CPUs.
                      Default: 1
     --tagseparator=s Use "s" as the separator to join multiple instances of the
