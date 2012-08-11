@@ -561,11 +561,6 @@ sub transcode_file {
     my ( $target_volume, $target_dir, $target_filename ) = File::Spec->splitpath($target);
     my $dst_dir = File::Spec->catpath( $target_volume, $target_dir, '' );
 
-    # Building command used to convert file (tagging done afterwards)
-    # Needs some work on quoting filenames containing special characters
-    my $quotedsrc  = quotemeta $source;
-    my $quoteddest = quotemeta $target;
-
     if ( ( !$pflags{exists} || $pflags{md5} || $Options{force} )
         && !$Options{tagsonly} )
     {
@@ -578,11 +573,9 @@ sub transcode_file {
         # This avoids leaving incomplete files in the destdir
         # If we're "pretending", don't create a File::Temp object
         my $tmpfilename;
-        my $quotedtmp;
         my $tmpfh;
         if ( $Options{pretend} ) {
             $tmpfilename = $target;
-            $quotedtmp   = $quoteddest;
         }
         else {
 
@@ -597,10 +590,9 @@ sub transcode_file {
                 SUFFIX => '.tmp'
             );
             $tmpfilename = $tmpfh->filename;
-            $quotedtmp   = quotemeta $tmpfilename;
         }
 
-        my $convert_command = "\"$flaccmd\" @flacargs $quotedsrc" . "| \"$lamecmd\" @lameargs - $quotedtmp";
+        my $convert_command = "\"$flaccmd\" @flacargs \"$source\"" . "| \"$lamecmd\" @lameargs - \"$target\"";
 
         $Options{debug} && msg("transcode: $convert_command");
 
