@@ -215,7 +215,7 @@ my @flac_files = @{ find_files( $source_root, qr/\.flac$/i ) };
 my ( $target_root_volume, $target_root_path, $target_root_file ) = File::Spec->splitpath( $target_root, 1 );
 my @target_root_elements = File::Spec->splitdir($target_root_path);
 
-my $parallel_supported = $^O ne 'MSWin32' and $^O ne 'MSWin64';
+my $parallel_supported = ($^O ne 'MSWin32' and $^O ne 'MSWin64');
 
 if (!$parallel_supported) { 
     msg("Using 1 transcoding processes.\n");
