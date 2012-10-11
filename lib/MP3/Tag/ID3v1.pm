@@ -78,6 +78,8 @@ Thomas Geffert, thg@users.sourceforge.net
 
 =pod
 
+=over
+
 =item title(), artist(), album(), year(), comment(), track(), genre()
 
   $artist  = $id3v1->artist;
@@ -391,6 +393,8 @@ or
    $id3v1 = $mp3->{ID3v1};		# Existing tag (if present)
 
 instead of using this function directly
+
+=back
 
 =cut
 

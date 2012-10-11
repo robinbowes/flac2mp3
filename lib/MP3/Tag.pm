@@ -41,7 +41,7 @@ use MP3::Tag::ImageExifTool;
 use MP3::Tag::LastResort;
 
 use vars qw/$VERSION @ISA/;
-$VERSION="1.12";
+$VERSION="1.13";
 @ISA = qw( MP3::Tag::User MP3::Tag::Site MP3::Tag::Vendor
 	   MP3::Tag::Implemenation ); # Make overridable
 *config = \%MP3::Tag::Implemenation::config;
@@ -679,19 +679,31 @@ sub aspect_ratio3 ($) {
   $r ? sprintf '%.3f', $r : $r;
 }
 
-sub mime_Pretype ($) {
-  my $r = shift->mime_type();
+=item mime_type( [$lazy] )
+
+Returns the MIME type as a string.  Returns C<application/octet-stream>
+for unrecognized types.  If not $lazy, will try harder (via ExifTool, if
+needed).
+
+=item mime_Pretype( [$lazy] )
+
+Returns uppercased first component of MIME type.
+
+=cut
+
+sub mime_Pretype ($;$) {
+  my $r = shift->mime_type(shift);
   $r =~ s,/.*,,s;
   ucfirst lc $r
 }
 
-sub mime_type ($) {		# _mime_type goes thru auto_field 'mime_type'
-  my $self = shift;
+sub mime_type ($;$) {		# _mime_type goes thru auto_field 'mime_type'
+  my ($self, $lazy) = (shift, shift);
   $self->get_tags;
   my $h = $self->{header};
   my $t = $h && $self->_Data_to_MIME($h, 1);
   return $t if $t;
-  return($self->_mime_type() || 'audio/mpeg'); # XXXX Can do much better
+  return((!$lazy && $self->_mime_type()) || 'application/octet-stream');
 }
 
 =item genre()
@@ -1142,7 +1154,7 @@ later).
 
 Later there will be probably more things to configure.
 
-=over
+=back
 
 =cut
 
@@ -1908,8 +1920,8 @@ does not contain C<i>, VALUE should have C<{}> and C<\> backwacked.
 For strings of the form C<T[FORMAT]>, I<FORMAT> is split on comma, and
 the resulting list of formats is used to convert the duration of the
 audio to a string using the method format_time().  (E.g.,
-C<%{T[=E<gt>m,?H:,m]}> would print duration in hours and minutes rounded
-to the closest minute.)
+C<%{T[=E<gt>m,?H:,{mL}]}> would print duration in (optional) hours and minutes
+rounded to the closest minute.)
 
 =back
 
@@ -1949,7 +1961,7 @@ configuration variables).
 Interpolation of ID3v2 frames uses the minimal possible non-ambiguous
 backslashing rules: the only backslashes needed are to protect the
 innermost closing delimiter (C<]> or C<}>) appearing as a literal
-character, or to protect backslashes I<immediately> preceeding such
+character, or to protect backslashes I<immediately> preceding such
 literal, or the closing delimiter.  E.g., the pattern equal to
 
   %{COMM(eng)[a\b\\c\}\]end\\\]\\\\]: comment `a\b\\c\\\}]end\]\\' present}
@@ -2895,11 +2907,11 @@ formats time according to @format, which should be a list of format
 descriptors.  Each format descriptor is either a simple letter, or a
 string in braces appropriate to be put after C<%> in an interpolated
 string.  A format descriptor can be followed by a literal string to be
-put as a suffix, and can be preceeded by a question mark, which says
+put as a suffix, and can be preceded by a question mark, which says
 that this part of format should be printed only if needed.
 
 Leftover minutes, seconds are formated 0-padded to width 2 if they are
-preceeded by more coarse units.  Similarly, leftover milliseconds are
+preceded by more coarse units.  Similarly, leftover milliseconds are
 printed with leading dot, and 0-padded to width 3.
 
 Two examples of useful C<@format>s are
@@ -3144,7 +3156,7 @@ sub _massage_genres ($;$) {   # Thanks to neil verplank for the prototype
         # 2.4 defines these conversions
         $genre = "Remix" if lc $genre eq "rx";
         $genre = "Cover" if lc $genre eq "cr";
-        $genre = "($genre)" if $genre and not $genre =~ /\D/;	# Only digits
+        $genre = "($genre)" if length $genre and not $genre =~ /\D/;	# Only digits
         push @genres, $genre unless $seen{$genre}++;
     }
     return if $firstnum;
@@ -3190,6 +3202,8 @@ C<~>-substituted).  Empty lines and lines starting with C<#> are ignored.
 The remaining lines should have format C<varname=value>; leading
 and trailing whitespace is stripped; there may be several lines with the same
 C<varname>; this sets list-valued variables.
+
+=back
 
 =cut
 

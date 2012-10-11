@@ -116,8 +116,6 @@ Ilya Zakharevich, ilyaz@cpan.org
 
 =over 4
 
-=pod
-
 =item get_frame_ids()
 
   $frameIDs = $tag->get_frame_ids;
@@ -136,7 +134,7 @@ check if a specific frame is included in the tag.
 
 If there are multiple occurences of a frame in one tag, the first frame is
 returned with its normal short name, following frames of this type get a
-'00', '01', '02', ... appended to this name.  These names can then
+'01', '02', '03', ... appended to this name.  These names can then
 used with C<get_frame> to get the information of these frames.  These
 fake frames are not returned if C<'truename'> argument is set; one
 can still use C<get_frames()> to extract the info for all of the frames with
@@ -307,7 +305,7 @@ If the data was stored compressed, it is
 uncompressed before it is returned (even in raw mode). Then $info contains a string
 with all data (which might be binary), and $name the long frame name.
 
-See also L<MP3::Tag::ID3v2-Data> for a list of all supported frames, and
+See also L<MP3::Tag::ID3v2_Data> for a list of all supported frames, and
 some other explanations of the returned data structure.
 
 If more than one frame with name $ID is present, @rest contains $info
@@ -383,7 +381,7 @@ sub get_frame {
 	    $result = $result->{Text};
 	  } elsif (exists $result->{URL}) {
 	    $result = $result->{URL};
-	  } elsif ($fname =~ /^MCDI/) {		# Per ID3v2-Data.pod
+	  } elsif ($fname =~ /^MCDI/) {		# Per ID3v2_Data.pod
 	    $result = $result->{_Data};
 	  }	# In fact, no other known frame has one element
 	}
@@ -716,7 +714,7 @@ If the optional argument $update_file is TRUE, an additional action is
 performed: if the audio file does not contain an ID3v2 tag, or the tag
 in the file is smaller than the built ID3v2 tag, the necessary
 0-padding is inserted before the audio content of the file so that it
-is able to accomodate the build tag (and the C<tagsize> field of
+is able to accommodate the build tag (and the C<tagsize> field of
 $id3v2 is updated correspondingly); in any case the header length of
 $tag2 is set to reflect the space in the beginning of the audio file.
 
@@ -888,7 +886,7 @@ mp3-file to a temp-file and renaming/moving that to the
 original filename.
 
 Do not use remove_tag() if you only want to change a header,
-as otherwise the file is copied unneccessary. Use write_tag()
+as otherwise the file is copied unnecessarily. Use write_tag()
 directly, which will override an old tag.
 
 =cut 
@@ -934,7 +932,7 @@ sub remove_tag {
 
 Add a new frame, identified by the short name $fname.  The number of
 elements of array @data should be as described in the ID3v2.3
-standard.  (See also L<MP3::Tag::ID3v2-Data>.)  There are two
+standard.  (See also L<MP3::Tag::ID3v2_Data>.)  There are two
 exceptions: if @data is empty, it is filled with necessary number of
 C<"">); if one of required elements is C<encoding>, it may be omitted
 or be C<undef>, meaning the arguments are in "Plain Perl (=ISOLatin-1
@@ -1570,6 +1568,7 @@ sub _Data_to_MIME ($$;$) {
   my($self, $data, $force) = (shift, shift, shift);  # Fname, field name remain
   my $res = $MT{substr $data, 0, 4} || $MT{substr $data, 0, 2};
   return $res if $res;
+  return 'audio/mpeg' if $data =~ /^\xff[\xe0-\xff]/;	# 11 bits are 1
   return 'application/octet-stream' unless $force;
   return;
 }
@@ -1988,7 +1987,7 @@ C<new()> needs as parameter a mp3fileobj, as created by C<MP3::Tag::File>.
 C<new> tries to find a ID3v2 tag in the mp3fileobj. If it does not find a
 tag it returns undef.  Otherwise it reads the tag header, as well as an
 extended header, if available. It reads the rest of the tag in a
-buffer, does unsynchronizing if neccessary, and returns a
+buffer, does unsynchronizing if necessary, and returns a
 ID3v2-object.  At this moment only ID3v2.3 is supported. Any extended
 header with CRC data is ignored, so no CRC check is done at the
 moment.  The ID3v2-object can be used to extract information from
@@ -2060,14 +2059,17 @@ sub new {
 	    $self->{footer} = substr $self->{tag_data}, -$self->{footer_size}
 		if $self->{footer_size};
 	    # Treat (illegal) padding after the tag
-	    if (($mp3obj->get_config('id3v2_mergepadding'))->[0]) {
-		my $d;
-		while ($mp3obj->read(\$d, 1024)) {
-		  my ($z) = ($d =~ /^(\0*)/);
-		  $self->{buggy_padding_size} += length $z;
-		  last unless length($z) == length($d);
-		}
+	    my($merge, $d, $z, $r) = ($mp3obj->get_config('id3v2_mergepadding'))->[0];
+	    my $max0s = $merge ? 1e100 : 16*1024;
+	    while ($max0s and $mp3obj->read(\$d, 1024)) {
+		  $max0s -= length $d;
+		  ($z) = ($d =~ /^(\0*)/);
+		  $self->{buggy_padding_size} += length $z if $merge;
+		  ($r = substr $d, length $z), last unless length($z) == length($d);
 	    }
+	    $self->{tagend_offset} = $mp3obj->tell() - length $r;
+	    $mp3obj->read(\$d, 10 - length $r) and $r .= $d if defined $r and length $r < 10;
+	    $$r_header = $d if $r_header and 10 <= length $d;
 	}
 	$mp3obj->close;
 	return $self;
@@ -2088,7 +2090,8 @@ sub new_with_parent {
     my ($class, $filename, $parent) = @_;
     my $header;
     my $new = $class->new($filename, undef, \$header);
-    ($header and $parent and $parent->[0]{header} = $header), return unless $new;
+    $parent->[0]{header} = $header if $header and $parent;
+    return unless $new;
     $new->{parent} = $parent;
     $new;
 }
@@ -2927,9 +2930,44 @@ BEGIN {
 
 =pod
 
+=back
+
+=head1 BUGS
+
+Writing C<v2.4>-layout tags is not supported.
+
+Additionally, one should keep in mind that C<v2.3> and C<v2.4> have differences
+in two areas:
+
+=over 4
+
+=item *
+
+layout of information in the byte stream (in other words, in a file
+considered as a string) is different;
+
+=item *
+
+semantic of frames is extended in C<v2.4> - more frames are defined, and
+more frame flags are defined too.
+
+=back
+
+MP3::Tag does not even try to I<write> frames in C<v2.4>-layout.  However,
+when I<reading> the frames, MP3::Tag does not assume any restriction on
+the semantic of frames - it allows all the semantical extensions
+defined in C<v2.4> even for C<v2.3> (and, probably, for C<v2.2>) layout.
+
+C<[*]> (I expect, any sane program would do the same...)
+
+Likewise, when writing frames, there is no restriction imposed on semantic.
+If user specifies a frame the meaning of which is defined only in C<v2.4>,
+we would happily write it even when we use C<v2.3> layout.  Same for frame
+flags.  (And given the assumption C<[*]>, this is a correct thing to do...)
+
 =head1 SEE ALSO
 
-L<MP3::Tag>, L<MP3::Tag::ID3v1>, L<MP3::Tag::ID3v2-Data>
+L<MP3::Tag>, L<MP3::Tag::ID3v1>, L<MP3::Tag::ID3v2_Data>
 
 ID3v2 standard - http://www.id3.org
 L<http://www.id3.org/id3v2-00>, L<http://www.id3.org/d3v2.3.0>,

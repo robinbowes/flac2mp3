@@ -97,7 +97,7 @@ trailing whitespace trimmed.  (Actually, split()ing into lines is done
 using the configuration item C<parse_split>; it defaults to C<"\n">.)
 
 If the configuration item C<parse_data> has multiple options, the $strings
-which are interpolated will use information set by preceeding options;
+which are interpolated will use information set by preceding options;
 similarly, any interolated option may use information obtained by other
 handlers - even if these handers are later in the pecking order than
 C<MP3::Tag::ParseData> (which by default is the first handler).  For

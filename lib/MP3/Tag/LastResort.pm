@@ -26,8 +26,6 @@ MP3::Tag::LastResort is designed to be called from the MP3::Tag module.
 It uses the artist_collection() as comment() if comment() is not otherwise
 defined.
 
-=over 4
-
 =cut
 
 

@@ -30,8 +30,6 @@ It offers possibilities to read/write data from files via read(), write(),
 truncate(), seek(), tell(), open(), close(); one can find the filename via
 the filename() method.
 
-=over 4
-
 =cut
 
 
@@ -182,6 +180,8 @@ sub get_mp3_frame_header {
 # use filename to determine information about song/artist/album
 
 =pod
+
+=over 4
 
 =item parse_filename()
 

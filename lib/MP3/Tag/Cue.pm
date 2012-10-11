@@ -128,6 +128,8 @@ sub new {
 
 sub DESTROY {}
 
+=over 4
+
 =item parse()
 
   ($title, $artist, $album, $year, $comment, $track) =
