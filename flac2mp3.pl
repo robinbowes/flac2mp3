@@ -592,7 +592,7 @@ sub transcode_file {
             $tmpfilename = $tmpfh->filename;
         }
 
-        my $convert_command = "\"$flaccmd\" @flacargs \"$source\"" . "| \"$lamecmd\" @lameargs - \"$target\"";
+        my $convert_command = "\"$flaccmd\" @flacargs \"$source\"" . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
 
         $Options{debug} && msg("transcode: $convert_command");
 
