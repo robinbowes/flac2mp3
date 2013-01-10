@@ -107,7 +107,7 @@ my %MP3frames = (
 );
 
 my %MP3frametexts = (
-    'COMMENT'                   => 'Short Text',
+    'COMMENT'                   => '',
     'MD5'                       => 'MD5',
     'MUSICBRAINZ_ALBUMARTISTID' => 'MusicBrainz Album Artist Id',
     'MUSICBRAINZ_ALBUMID'       => 'MusicBrainz Album Id',
@@ -691,17 +691,16 @@ sub write_tags {
 
                     # COMM, TXX, and UFID are Complex frames that must be
                     # treated differently.
+                    my $frametext = $MP3frametexts{$frame};
                     if ( $method eq "COMM" ) {
-                        $mp3->{"ID3v2"}->add_frame( $method, 'ENG', 'Short Text', $framestring );
+                        $mp3->{"ID3v2"}->add_frame( $method, 'ENG', $frametext, $framestring );
                     }
                     elsif ( $method eq "TXXX" ) {
-                        my $frametext = $MP3frametexts{$frame};
                         $frametext = $frame
                             if ( !( defined($frametext) ) );
                         $mp3->{"ID3v2"}->add_frame( $method, 0, $frametext, $framestring );
                     }
                     elsif ( $method eq 'UFID' ) {
-                        my $frametext = $MP3frametexts{$frame};
                         $mp3->{'ID3v2'}->add_frame( $method, $framestring, $frametext );
                     }
                     else {
