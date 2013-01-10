@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset='utf-8'>
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <link href='https://fonts.googleapis.com/css?family=Chivo:900' rel='stylesheet' type='text/css'>
+    <link rel="stylesheet" type="text/css" href="stylesheets/stylesheet.css" media="screen" />
+    <link rel="stylesheet" type="text/css" href="stylesheets/pygment_trac.css" media="screen" />
+    <link rel="stylesheet" type="text/css" href="stylesheets/print.css" media="print" />
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <title>Flac2mp3 by robinbowes</title>
+  </head>
+
+  <body>
+    <div id="container">
+      <div class="inner">
+
+        <header>
+          <h1>Flac2mp3</h1>
+          <h2>flac2mp3 is a tool to convert audio files from flac to mp3 format including the copying of tags.</h2>
+        </header>
+
+        <section id="downloads" class="clearfix">
+          <a href="https://github.com/robinbowes/flac2mp3/zipball/master" id="download-zip" class="button"><span>Download .zip</span></a>
+          <a href="https://github.com/robinbowes/flac2mp3/tarball/master" id="download-tar-gz" class="button"><span>Download .tar.gz</span></a>
+          <a href="https://github.com/robinbowes/flac2mp3" id="view-on-github" class="button"><span>View on GitHub</span></a>
+        </section>
+
+        <hr>
+
+        <section id="main_content">
+          <h1>About flac2mp3</h1>
+
+<p>flac2mp3 is a perl script that will search for flac files within
+a directory hierarchy and convert them all to mp3 format, creating a
+matching directory structure in the process.</p>
+
+<p>I wrote it as I have a large collection of flac files but need to
+convert them to mp3 format for use with my iPod.</p>
+
+<p>There are a few programs that can do basic file format conversion
+but I found that it was hard to detect which files were new in my
+flac collection and to convert just those files. I also find I update
+the metadata in my flac files fairly often (when I spot mistakes, etc.)
+and needed  a way to update just the tags rather than running the whole
+conversion process again.</p>
+
+<p>flac2mp3 can do this.</p>
+
+<p>It can take a directory structure like this:</p>
+
+<p>lossless
+  |
+  +--Coldplay
+  |    |
+  |    +--Parachutes
+  |         |
+  |         +-- 01 - Don't Panic.flac
+  |             02 - Shiver.flac
+  +--The Chameleons
+       |
+       +Script of the Bridge
+          |
+          +-- 01 - Don't Fall.flac
+              02 - Here Today.flac</p>
+
+<p>And produce a directory structure like this:</p>
+
+<p>lossy
+  |
+  +--Coldplay
+  |    |
+  |    +--Parachutes
+  |         |
+  |         +-- 01 - Don't Panic.mp3
+  |             02 - Shiver.mp3
+  +--The Chameleons
+       |
+       +Script of the Bridge
+          |
+          +-- 01 - Don't Fall.mp3
+              02 - Here Today.mp3</p>
+
+<p>The command to do this is:</p>
+
+<p>flac2mp3.pl /path/to/lossless /path/to/lossy</p>
+
+<p>Now, suppose I notice that I've spelled "coldplay" wrongly. I simply
+use a tag editor to correct the flac files then run flac2mp3 again
+to update the tags in the mp3 files:</p>
+
+<p>flac2mp3.pl /path/to/lossless /path/to/lossy</p>
+
+<p>flac2mp3 will detect that just the tags have changed in the flac files
+and update the mp3 files without re-transcoding. </p>
+
+<p>Command-line options can be seen by typing "flac2mp3.pl" with no options:</p>
+
+<p>Usage: ./flac2mp3.pl [--pretend] [--quiet] [--debug] [--tagsonly] [--force]
+[--tagdiff] 
+    --pretend       Don't actually do anything
+    --quiet         Disable informational output to stdout
+    --debug         Enable debugging output. For developers only!
+    --tagsonly      Don't do any transcoding - just update tags
+    --force         Force transcoding and tag update even if not required
+    --tagdiff       Print source/dest tag values if different</p>
+
+<h1>Installation</h1>
+
+<p>As of v0.2.6 all non-standard perl modules are supplied in the archive.
+Installation should be as simple as extracting the archive into a 
+directory of your choice.</p>
+
+<p>For example, on linux:</p>
+
+<p># cd ~/bin
+ # tar zxvf flac2mp3-0.3.0.tar.gz</p>
+
+<p>On Windows, you can use Winzip or other utility to unzip the file and
+extract the archive.</p>
+
+<h1>Mailing lists</h1>
+
+<p>The following mailing lists are available:</p>
+
+<p>List address: <a href="mailto:flac2mp3-announce@robinbowes.com">flac2mp3-announce@robinbowes.com</a>
+Description:  Read-only list for announcements
+To subscribe: <a href="mailto:flac2mp3-announce-subscribe@robinbowes.com">flac2mp3-announce-subscribe@robinbowes.com</a></p>
+
+<p>List address: <a href="mailto:flac2mp3-devel@robinbowes.com">flac2mp3-devel@robinbowes.com</a>
+Description:  Developer discussion
+To subscribe: <a href="mailto:flac2mp3-devel-subscribe@robinbowes.com">flac2mp3-devel-subscribe@robinbowes.com</a></p>
+
+<p>List address: <a href="mailto:flac2mp3-general@robinbowes.com">flac2mp3-general@robinbowes.com</a>
+Description:  General user discussion
+To subscribe: <a href="mailto:flac2mp3-general-subscribe@robinbowes.com">flac2mp3-general-subscribe@robinbowes.com</a></p>
+
+<p>Please report any issues to <a href="mailto:robin-flac2mp3@robinbowes.com">robin-flac2mp3@robinbowes.com</a></p>
+
+<p>Robin Bowes
+July 2007</p>
+        </section>
+
+        <footer>
+          Flac2mp3 is maintained by <a href="https://github.com/robinbowes">robinbowes</a><br>
+          This page was generated by <a href="http://pages.github.com">GitHub Pages</a>. Tactile theme by <a href="http://twitter.com/jasonlong">Jason Long</a>.
+        </footer>
+
+        
+      </div>
+    </div>
+  </body>
+</html>
