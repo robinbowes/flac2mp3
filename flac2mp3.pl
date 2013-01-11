@@ -21,6 +21,7 @@ use Audio::FLAC::Header;
 use Data::Dumper;
 use Encode;
 use File::Basename;
+use File::Copy;
 use File::Find::Rule;
 use File::Path;
 use File::Spec;
@@ -31,6 +32,7 @@ use MP3::Tag;
 use Parallel::Forkmanager;
 use Scalar::Util qw/ looks_like_number /;
 use FreezeThaw qw/ cmpStr /;
+use Digest::MD5;
 
 # ------- User-config options start here --------
 # Assume flac and lame programs are in the path.
@@ -151,7 +153,7 @@ my %Options = (
 GetOptions(
     \%Options,     "quiet!",         "tagdiff", "debug!",  "tagsonly!", "force!",
     "usage",       "help",           "version", "pretend", "skipfile!", "skipfilename=s",
-    "processes=i", "tagseparator=s", "lameargs=s",
+    "processes=i", "tagseparator=s", "lameargs=s", "dontcopy!"
 );
 
 # info flag is the inverse of --quiet
@@ -226,6 +228,87 @@ foreach my $src_file (@flac_files) {
 	$pm->finish; # Terminates the child process
 }
 $pm->wait_all_children;
+
+
+unless ( $Options{dontcopy} ) {
+    my @non_flac_files 
+	= sort File::Find::Rule->file()->extras( { follow => 1 } )->not_name(qr/\.flac$/i)
+  	->in($source_root);
+    my $non_flac_file_count = scalar @non_flac_files;
+    $Options{info} &&
+	msg( "Found $non_flac_file_count non-flac file" .( $non_flac_file_count != 1 ? 's'  : '' . "\n" ) );
+
+    # Copy non-flac files from source to dest directories
+    my $t0 = time;
+    my $cntr_all = 0;
+    my $cntr_copied = 0;
+    foreach my $src_file (@non_flac_files) {
+		my ($dst_dir, $dst_file) = get_dest_file_path_non_flac($src_file);
+	   	# Flag which determines if file should be copied:
+		my $do_copy = 1;
+		# Don't copy file if it already exists in dest directory and 
+		# has identical md5 to the source file   	
+		if (-e $dst_file) {
+			my $src_md5 = get_md5_of_non_flac_file($src_file);
+			my $dst_md5 = get_md5_of_non_flac_file($dst_file);
+			if ($src_md5 eq $dst_md5) {
+				$do_copy = 0; # Don't copy if equal md5
+			};
+		}
+		else {
+		# Create the destination directory if it
+		# doesn't already exist
+		mkpath($dst_dir) 
+			or die "Can't create directory $dst_dir\n"
+			unless -d $dst_dir;
+		};
+		if ( $do_copy ) {
+			unless ( $Options{pretend} ) { 
+				copy($src_file,$dst_file) || die("Can't copy this FILE: $src_file !");
+			}
+			$cntr_copied ++;
+		};
+		$cntr_all ++;
+		# Show the progress every second
+		if ( ((time - $t0) >= 1) || ($cntr_all==$non_flac_file_count) ) {
+			$t0 = time;
+			print("\r" . $pretendString . $cntr_copied . " non-flac files of " . $cntr_all ." were copied to dest directories.");
+		};
+    };
+    msg("\n");	# double line feed
+};
+
+
+sub get_dest_file_path_non_flac {
+    my $source = shift;
+
+    # remove $source_dir from front of $src_file
+    my $target = $source;
+    $target =~ s{\Q$source_root/\E}{}xms;
+
+    # Get directories in target and put in an array
+    # Note: the filename is the source file name
+    my ( $target_volume, $target_path, $source_file ) = File::Spec->splitpath($target);
+    my @target_path_elements = File::Spec->splitdir($target_path);
+
+    # Add the dst_dirs to the dst root and join back together
+    $target_path = File::Spec->catdir( @target_root_elements, @target_path_elements );
+
+    # Now join it all together to get the complete path of the dest_file
+    $target = File::Spec->catpath( $target_root_volume, $target_path, $source_file );
+	my $target_dir = File::Spec->catpath( $target_root_volume, $target_path, '' );
+
+    return $target_dir,$target;
+};
+
+sub get_md5_of_non_flac_file {
+    my $file = shift;
+    open(FILE, $file) or die "Can't open '$file': $!";
+    binmode(FILE);
+    my $md5_code = Digest::MD5->new->addfile(*FILE)->hexdigest;
+    close FILE;
+    return $md5_code;
+};
 
 # use parallel processing to launch multiple transcoding processes
 sub path_and_conversion{
@@ -311,6 +394,7 @@ Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--
     --tagseparator=s Use "s" as the separator to join multiple instances of the
                      same tag.
                      Default: "/"
+    --dontcopy       Don't copy non-flac files to dest directories
 EOT
     exit 0;
 }
