@@ -1,3 +1,47 @@
+Modified version by Carl Asplund, rev 4 (February 2013)
+ - Added option "--delete". When enabled, any files in the destination
+   directories which are not accounted for in the source directories will
+   be deleted before transcoding begins. In this way, the destination is kept perfectly in sync with the source,
+   even when files and/or directories have been renamed.
+ - Copying non-flac files now honors skipfiles (i.e. not copying directories with a skipfile)
+ - Refactored code for the translation of paths from source to target directories.
+ - Bugfix: Now properly suppresses all output with option "--quiet" 
+
+Modified version by Carl Asplund, rev 3 (January 2013)
+ - First version which combines embedded album art, multi-CPU processing, and copying of 
+   non-flac files present in the flac folders (which, for some, is another way of handling album art)
+ - Extensive refactoring of code, everything built up from latest revision in Robin 
+   Bowes' repository: r157
+ - Fixed problem with paths under MS Win systems: volume (eg. "C:") was not preserved in r157
+ - Various small fixes of broken code in r157 (addressing e.g. tickets #94 and #134)
+ - Code for embedded album art now integrated into Robin's code for the other tags
+ - Using Parallel::Forkmanager instead of Proc::ParallelLoop which solves two problems: 
+	1. Bug in Proc::ParallelLoop casues crash for asymmeteric loads, module seems to be abandoned since 2003
+	2. Parallel::Forkmanager works under MS Win (Proc::ParallelLoop doesn't)
+ - Fixed race condition bug for creation of target directory (previous code broken, would sometimes skip transcoding files)
+ - Fixed race condition bug in MP3::Tag::ID3v2, which has severely broken temp file generation code 
+   in original version (see https://rt.cpan.org/Public/Bug/Display.html?id=66768)
+   Thanks to Jason Rhinelander for posting a very useful patch on CPAN.
+ - Progress report and estimated-time-to-finish removed for now. Will adress this later (parallel 
+   processing calls for another solution)
+ - Known problems: Parallel processing under MS Win is not perfectly stable, MP3::Tag will sometimes be unable to 
+   rename temp files during heavy I/O operation (multiple parallel threads with lame and/or flac running), thus 
+   skipping the file in question. However, parallel code works flawlessly on MS Win when actual transcoding 
+   is replaced by sleep() or counting loops. Sometimes a short, 1 sec, sleep will suffice if unable to rename, 
+   before successfully retrying rename operation. Problem seems to be unrelated to filename conflicts and 
+   possibly goes deeper than the CPAN modules used.
+ 
+Modified version by Carl Asplund, rev 2 (November 2012)
+ - Non-flac files are copied to dest directory only when the source and target
+   md5 numbers don't match
+ - Progress is displayed during copying of non-flac files
+ - Added option "--dontcopy" (Don't copy non-flac files to dest directories)
+
+Modified version by Carl Asplund (August 2009)
+ - Embedded picture data (album art) in flac file is copied over to the mp3 file
+ - Estimated time to finish and progress is displayed during transcoding 
+ - Non-flac files in the folders (jpg, mp3 files etc.) are copied over to destination folders
+
 v0.3.0
  - Remove File::Glob (it's in core) and add Text::Glob 
  - Re-work & refactor the search/checking code
