@@ -201,6 +201,9 @@ foreach my $cmd ( $flaccmd, $lamecmd ) {
     $Options{info} && msg("Using $cmd from: $cmdpath");
 }
 
+# Turn off unsyncing, due to a bug in Logitech Media Server
+MP3::Tag->config(id3v23_unsync => 0);
+
 # Convert directories to absolute paths
 $source_root  = File::Spec->rel2abs($source_root);
 $target_root = File::Spec->rel2abs($target_root);
