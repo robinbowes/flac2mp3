@@ -683,6 +683,11 @@ sub insert_space {
 		}
 	}
 	return 0;
+	
+	# Finally, change file permissions, which otherwise (on *nix) will 
+	# be 0600 due peculiarities of the File::Temp module.
+	chmod ((umask) ^ oct(666)), $target;
+
 }
 
 =pod
