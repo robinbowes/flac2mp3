@@ -636,8 +636,10 @@ sub insert_space {
             );
 	my $tempfile = $tempfh->filename;
 
-	# Change file permissions, which otherwise (on *nix) will 
-	# be 0600 due peculiarities of the File::Temp module.
+	# Change file permissions to default value.
+	# Permissions will otherwise (at least on *nix) 
+	# be 0600 regardless of umask, due a peculiar choice choice 
+	# by the developers of the File::Temp module.
 	chmod umask ^ 0666, $tempfile;
 
 	if ($@) {
@@ -687,11 +689,6 @@ sub insert_space {
 		}
 	}
 	return 0;
-	
-	# Finally, change file permissions, which otherwise (on *nix) will 
-	# be 0600 due peculiarities of the File::Temp module.
-	chmod ((umask) ^ oct(666)), $target;
-
 }
 
 =pod
