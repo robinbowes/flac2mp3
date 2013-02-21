@@ -27,13 +27,13 @@ use File::Path;
 use File::Spec;
 use File::Temp qw/ cleanup /;
 use File::Which;
-use File::Basename;
 use Getopt::Long;
 use MP3::Tag;
 use Parallel::Forkmanager;
 use Scalar::Util qw/ looks_like_number /;
 use FreezeThaw qw/ cmpStr /;
 use Digest::MD5;
+use Time::HiRes qw ( time );
 
 # ------- User-config options start here --------
 # Assume flac and lame programs are in the path.
@@ -48,14 +48,16 @@ use Digest::MD5;
 #      c:/windows/system32/flac.exe
 #    or
 #      c:\\windows\\system32\\flac.exe
+
 my ($flaccmd, $lamecmd);
-if ($^O ne 'MSWin32' and $^O ne 'MSWin64') {
-	$flaccmd = 'flac';
-	$lamecmd = 'lame';
-}
-else {
+if ($^O eq 'MSWin32' or $^O eq 'MSWin64') {
+	# This is an example of typical Windows filepaths:
 	$flaccmd = q|C:\Program Files (x86)\FLAC\flac.exe|;
 	$lamecmd = q|C:\Program Files\LAME\lame.exe|;
+}
+else {
+	$flaccmd = 'flac';
+	$lamecmd = 'lame';
 }
 
 # Modify lame options if required
@@ -198,10 +200,11 @@ foreach my $cmd ( $flaccmd, $lamecmd ) {
         $cmdpath = which($cmd);
     }
     croak "$cmd not found" unless $cmdpath;
-    $Options{info} && msg("Using $cmd from: $cmdpath");
+    msg_info("Using $cmd from: $cmdpath");
 }
 
-# Turn off unsyncing, due to a bug in Logitech Media Server
+# Turn off unsyncing to improve compatibility with broken 
+# software (e.g. Logitech Media Server)
 MP3::Tag->config(id3v23_unsync => 0);
 
 # Convert directories to absolute paths
@@ -211,38 +214,120 @@ $target_root = File::Spec->rel2abs($target_root);
 die "Source directory not found: $source_root\n"
     unless -d $source_root;
 
-# count all flac files in source_dir
-# Display a progress report after each file, e.g. Processed 367/4394 files
-# Possibly do some timing and add a Estimated Time Remaining
-# Will need to only count files that are going to be processed.
-# Hmmm could get complicated.
-
-$Options{info}
-    && msg( $pretendString . "Processing directory: $source_root" );
+msg_info( $pretendString . "Processing directory: $source_root" );
 
 # Now look for files in the source dir
 # (following symlinks)
 my %flac_mp3_files = get_all_paths('name', '.flac', $source_root, $target_root, '.mp3');
 my @flac_files = sort keys { %flac_mp3_files };
 	
-if ( $Options{info} ) {
-	my $file_count = scalar @flac_files;
-	msg( "Found $file_count flac file" . ( $file_count > 1 ? 's'  : '' . "\n" ) );
-}
+my $file_count = scalar @flac_files;
+msg_info( "Found $file_count flac file" . ( $file_count > 1 ? 's'  : '' . "\n" ) );
 
 # If allowed, delete surplus files and folders from target directory, keeping 
 # it in perfect sync with (i.e. a mirror of) the source directory.  
 delete_excess_files_from_dest($source_root, $target_root) if ( $Options{delete} ) ;
 
-# use parallel processing to launch multiple transcoding processes
-$Options{info} && msg("Using $Options{processes} transcoding processes.\n");
-my $pm = new Parallel::ForkManager($Options{processes});
+# Traverse all flac-files, but process only those who doesn't need transcoding.
+# Save for later the name and size of each of the flac files which need transcoding.
+my %flac_file_size = ();
+my $total_file_size_to_transcode = 0;
+my $cntr_processed = 0;
+my $cntr_all;
+my $t0 = 0;
 foreach my $src_file (@flac_files) {
-	$pm->start and next; # Forks and returns the pid for the child
-	path_and_conversion($src_file);	
-	$pm->finish; # Terminates the child process
+	if ( $Options{force} || ( (my $result = path_and_conversion($src_file,0)) == 1 ) ) {
+		my $filesize = -s $src_file;
+		# save size data in a hash
+		$flac_file_size{$src_file} = $filesize;
+		$total_file_size_to_transcode += $filesize;
+	}
+	else {
+		$cntr_processed++;
+		if ( scalar @$result) { 
+			msg_info("");
+			foreach my $string ( @$result ) {
+				msg_info($string);
+			}
+		}
+	};
+	$cntr_all ++;
+
+	# Show the progress every second
+	if ( $Options{info} && 
+		( (!$Options{force}) || ((time - $t0) >= 1) || ($cntr_all==$file_count) ) ) {
+		$t0 = time;
+		print("\r" . $cntr_processed . " of " . $cntr_all . " flac files were processed without transcoding.");
+	};
+
 }
-$pm->wait_all_children;
+msg_info("");
+
+
+my $files_to_trancode = scalar (keys %flac_file_size); 
+if ($files_to_trancode) {
+	my $t0 = time; # starting time for the transcoding part
+	my $files_transcoded_cntr = 0;
+	my $size_transcoded_so_far = 0;
+
+	msg_info("");
+	msg_info("The remaining $files_to_trancode files will be transcoded.");
+	msg_info("Total size of files to convert:  " . 
+		sprintf("%.1f", $total_file_size_to_transcode/(1024**2)) . " MB");
+	# use parallel processing to launch multiple transcoding processes
+	msg_info("Using $Options{processes} transcoding processes.\n");
+	my $pm = new Parallel::ForkManager($Options{processes});
+
+	$pm->run_on_finish( sub {
+		# This callback code is run after each transcode and outputs messages generated
+		# by the children, as well as overall progress info
+		#
+		# According to the Parallel::Forkmanager documentation, the structure of the 
+		# input data @_ to this callback function is as follows: 
+		# ($pid, $exit_code, $ident, $exit_signal, $core_dump, $data_structure_reference)
+		my $src = $_[2]; # this is "$ident"
+		my $messages = $_[5]; # this is "$data_structure_reference"
+		
+		# Update counter of transcoded files
+		$files_transcoded_cntr++;
+		
+		# display information about the transcoded/tagged file
+		foreach my $string ( @$messages ) {
+				msg_info($string);
+		}
+		# display updated progress info
+		msg_info("Processed " . 
+			($cntr_processed + $files_transcoded_cntr) . "/$file_count files.");
+		my $elapsedtime = time - $t0;
+		$size_transcoded_so_far += $flac_file_size{$src};
+		
+		# After 20 seconds, we have enough data to provide a qualified guess 
+		# about the estimated finish time.
+		if ($elapsedtime > 20) {
+			my $remains_to_be_transcoded 
+				= $total_file_size_to_transcode - $size_transcoded_so_far;
+			my $transcoding_rate = $size_transcoded_so_far / $elapsedtime;
+			my $estim_finish_time 
+				= localtime(time + $remains_to_be_transcoded / $transcoding_rate);
+			msg_info("Estimated finish time is $estim_finish_time."); 	
+		};		
+
+		msg_info("");
+	});
+	
+	# Transcoding loop starts here
+	foreach my $src_file (sort keys %flac_file_size) {
+		$pm->start($src_file) and next; # forks here
+		
+		# transcode and generate messages with file info
+		my $messageref = path_and_conversion($src_file,1);	
+		
+		# terminates the child process, send messages to callback sub
+		$pm->finish(0, $messageref );
+	}
+	$pm->wait_all_children;
+
+};
 
 # If allowed, copy non-flac files to destination dirs
 copy_non_flacs($source_root, $target_root) unless ( $Options{dontcopy} );
@@ -256,36 +341,39 @@ copy_non_flacs($source_root, $target_root) unless ( $Options{dontcopy} );
 sub delete_excess_files_from_dest {
 	my ($source_root, $target_root) = @_;
 	
+	# Generate (source => target) hashes for the files found using 
+	# each of the following combinations of root dirs and file suffixes 
 	my %existing_target_mp3_files = get_all_paths('name', '.mp3', $target_root, $target_root, '.mp3');
 	my %existing_source_mp3_files = get_all_paths('name', '.mp3', $source_root, $target_root, '.mp3');
 	my %non_flac_files = get_all_paths('not_name', '.flac', $source_root, $target_root, '');
 	my %existing_target_non_mp3_files = get_all_paths('not_name', '.mp3', $target_root, $target_root, '');
 	
-	# calculate what files to expect in directory after finished transcoding and copying
+	# 1. calculate what files to expect in directory after finished transcoding and copying
 	my @expected_transcoded_mp3s = keys { reverse %flac_mp3_files }; # expected mp3 files in target from transcoded flac files
 	my @expected_copied_files = keys { reverse %non_flac_files }; # expected files in target copied from non-flac files in source
 	my @expected_files = uniq(@expected_transcoded_mp3s, @expected_copied_files); # Join the arrays and remove any duplicates 
 	
-	# check what files are actually present
+	# 2. check what files are actually present
 	my @actual_mp3s = keys { reverse %existing_target_mp3_files }; # actual existing mp3 files in target
 	my @actual_non_mp3s = keys { reverse %existing_target_non_mp3_files }; # existing non-mp3 files in target
 	my @actual_files = (@actual_mp3s, @actual_non_mp3s); # Join the arrays (being mutually exclusive, there is no overlap) 
 	
-	# determine which files to remove from target directory tree
+	# 3. determine which files to remove from target directory tree
 	my @files_to_remove = single_difference(\@expected_files, \@actual_files);
 	
-	# determine which subdirectories to remove from target directory tree
+	# 4. determine which subdirectories to remove from target directory tree
 	my @expected_subdirs_in_target = get_all_dirs($source_root,$target_root);
 	my @actual_subdirs_in_target = get_all_dirs($target_root,$target_root);
 	my @dirs_to_remove = single_difference(\@expected_subdirs_in_target, \@actual_subdirs_in_target);
 	
+	# 5. carry out the deletions 
 	foreach my $file (@files_to_remove) {
 		$Options{pretend} || unlink $file or die "Unable to delete $file: $!";
-		$Options{info} && msg($pretendString . "Deleted \"$file\"");
+		msg_info($pretendString . "Deleted \"$file\"");
 	}
 	foreach my $dir (reverse sort @dirs_to_remove) {
 		$Options{pretend} || File::Path->remove_tree($dir) or die "Unable to delete directory $dir: $!";
-		$Options{info} && msg($pretendString . "Deleted directory \"$dir\"");
+		msg_info($pretendString . "Deleted directory \"$dir\"");
 	}
 }
 
@@ -383,8 +471,8 @@ sub copy_non_flacs {
 	my %non_flac_files = get_all_paths('not_name', '.flac', $source_root, $target_root, '');
     my @non_flac_files = keys %non_flac_files; 
     my $non_flac_file_count = scalar @non_flac_files;
-    $Options{info} &&
-		msg( "Found $non_flac_file_count non-flac file" .( $non_flac_file_count != 1 ? 's'  : '' . "\n" ) );
+    msg_info( "Found $non_flac_file_count non-flac file" . 
+		( $non_flac_file_count != 1 ? 's'  : '' . "\n" ) );
 
     # Copy non-flac files from source to dest directories
     my $t0 = time;
@@ -406,7 +494,8 @@ sub copy_non_flacs {
 		else {
 			# Create the destination directory if it
 			# doesn't already exist
-			(undef, my $dst_dir) = File::Basename::fileparse($dst_file); # retrieve directory name
+			(undef, my $dst_dir) = 
+				File::Basename::fileparse($dst_file); # retrieve directory name
 			unless ( $Options{pretend} || -d $dst_dir ) {
 				mkpath($dst_dir) or die "Can't create directory $dst_dir\n";
 			}
@@ -419,12 +508,14 @@ sub copy_non_flacs {
 		};
 		$cntr_all ++;
 		# Show the progress every second
-		if ( $Options{info} && ( ((time - $t0) >= 1) || ($cntr_all==$non_flac_file_count) ) ) {
+		if ( $Options{info} && 
+			( ((time - $t0) >= 1) || ($cntr_all==$non_flac_file_count) ) ) {
 			$t0 = time;
-			print("\r" . $pretendString . $cntr_copied . " non-flac files of " . $cntr_all ." were copied to dest directories.");
+			print("\r" . $pretendString . $cntr_copied . 
+				" non-flac files of " . $cntr_all ." were copied to dest directories.");
 		};
     };
-    $Options{info} && msg("\n");	# double line feed
+    msg_info("\n");	# double line feed
 };
 
 sub get_md5_of_non_flac_file {
@@ -437,38 +528,69 @@ sub get_md5_of_non_flac_file {
 };
 
 sub path_and_conversion{
-    my $source = shift;
+	# When "$transcode_enabled" is false it means that we are 
+	# checking whether the file should be transcoded. If so, we
+	# return, and no further processing is taking place during this call.
+	# If the file is not to be transcoded, we stay and update tags if 
+	# necessary. 
+    
+	my $source = shift;
 	my $target = $flac_mp3_files{$source};
+	my $transcode_enabled = shift;
+	my @messages = ();
+	my $t0;
+	my $elapsed_time = undef;
 	
     $Options{debug} && msg("source: '$source'");
     $Options{debug} && msg("target: '$target'");
 
-    # get tags from flac file
+    # Step 1: get tags from flac file
     my $source_tags = read_flac_tags($source);
 
-    # hash to hold tags that will be updated
+    # Step 2: hash to hold tags that will be updated
     my $tags_to_update = preprocess_flac_tags( $source_tags );
 
-    # Initialise file processing flags
-    my $pflags = examine_destfile_tags( $target, $tags_to_update );
+    # Step 3: Initialise file processing flags
+    my ($pflags, $mess) = examine_destfile_tags( $target, $tags_to_update );
+	push @messages, @$mess;
 
-    # Transcode the file based on the processing flags
-    transcode_file( $source, $target, $pflags );
+	if ( ( !$$pflags{exists} || $$pflags{md5} || $Options{force} )
+        && !$Options{tagsonly} ) {
+		
+		# Return if this file would be transcoded
+		return 1 unless ($transcode_enabled);
+		
+		$t0 = time;
+		# Step 4: Transcode the file based on the processing flags
+		$mess = transcode_file( $source, $target, $pflags );
+		push @messages, @$mess;
+		$elapsed_time = time - $t0;
+	};
 
-    # Write the tags based on the processing flags
-    write_tags( $target, $tags_to_update, $pflags );
+    # Step 5: Write the tags based on the processing flags
+	$mess = write_tags( $target, $tags_to_update, $pflags );
+    push @messages, @$mess;
+
+	if (defined $elapsed_time) { 
+		push @messages, sprintf("Conversion took %5.2f seconds.", $elapsed_time);
+	};
+	
+	return \@messages;
 };
 
 sub showusage {
     print <<"EOT";
-Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--noskipfile] [--skipfilename=<filename>] [--lameargs='parameter-list'] <flacdir> <mp3dir>    --pretend        Don't actually do anything
+
+Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--noskipfile] [--skipfilename=<filename>] [--lameargs='parameter-list'] <flacdir> <mp3dir>
+
+    --pretend        Don't actually do anything
     --quiet          Disable informational output to stdout
     --debug          Enable debugging output. For developers only!
     --tagsonly       Don't do any transcoding - just update tags
     --force          Force transcoding and tag update even if not required
     --tagdiff	     Print source/dest tag values if different
     --lameargs='s'   specify parameter(string) to be passed to the LAME Encoder
-                     Default: "--noreplaygain --vbr-new -V 2 -h --nohist --quiet"
+                     Default: "--noreplaygain -V 2 -h --nohist --quiet"
     --noskipfile     Ignore any skip files
     --skipfilename   Specify the name of the skip file.
                      Default: flac2mp3.ignore
@@ -480,13 +602,20 @@ Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--
                      Default: "/"
     --dontcopy       Don't copy non-flac files to dest directories
     --delete         Delete surplus files and directories in destination, keeping in sync with source dir
+
+Example: $0 --processes=6 --delete ~/FLAC/ ~/MP3/
+
 EOT
     exit 0;
 }
 
-sub msg {
-    my $msg = shift;
-    print "$msg\n";
+sub msg { 
+	print "@_\n"
+}
+
+sub msg_info {
+	# display only if "--quiet" option is not in use
+	$Options{info} && msg(@_)
 }
 
 sub read_flac_tags {
@@ -575,6 +704,7 @@ sub examine_destfile_tags {
     my $destfilename     = shift;
     my $frames_ref       = shift;
     my %frames_to_update = %$frames_ref;    # this is only to minimize changes
+	my @return_messages = ();
 
     # Initialise file processing flags
     my %pflags = (
@@ -684,11 +814,12 @@ sub examine_destfile_tags {
                 if ( $dest_text ne $srcframe ) {
                     $pflags{tags} = 1;
                     if ( $Options{tagdiff} ) {
-                        msg("frame: '$frame'");
-                        msg("srcframe value: '$srcframe'");
-                        msg("destframe value: '$dest_text'");
+						push @return_messages, (
+							"frame: '$frame'",
+							"srcframe value: '$srcframe'",
+							"destframe value: '$dest_text'"
+						);
                     }
-
                 }
             }
         }
@@ -710,7 +841,7 @@ sub examine_destfile_tags {
         msg( Dumper \%frames_to_update );
     }
 
-    return \%pflags;
+    return \%pflags, \@return_messages;
 }
 
 sub transcode_file {
@@ -718,93 +849,92 @@ sub transcode_file {
     my $target     = shift;
     my $pflags_ref = shift;
     my %pflags     = %$pflags_ref;    # this is only to minimize changes
+	my @return_messages = ();
+	my $elapsed_time;
+	
+	# Transcode to a temp file in the destdir.
+	# Rename the file if the conversion completes sucessfully
+	# This avoids leaving incomplete files in the destdir
+	# If we're "pretending", don't create a File::Temp object
+	my $tmpfilename;
+	my $tmpfh;
+	if ( $Options{pretend} ) {
+		$tmpfilename = $target;
+	}
+	else {
+		# retrieve destination directory name
+		(undef, my $dst_dir) = File::Basename::fileparse($target); 
 
-    my ( $target_volume, $target_dir, $target_filename ) = File::Spec->splitpath($target);
-    my $dst_dir = File::Spec->catpath( $target_volume, $target_dir, '' );
+		# Create the destination directory if it
+		# doesn't already exist
+		unless (-d $dst_dir) {
+			# If necessary, allow a second check. Don't die just because the 
+			# dir was created by another child (race condition):
+			mkpath($dst_dir) or (-d $dst_dir)
+				or die "Can't create directory $dst_dir\n"; 
+		};
+		$tmpfh = new File::Temp(
+			UNLINK => 1,
+			DIR    => $dst_dir,
+			SUFFIX => '.tmp'
+		);
+		$tmpfilename = $tmpfh->filename;
+	}
+	# Save message to be displayed on screen
+	push @return_messages, $pretendString . "Transcoding    \"$source\"" ;
+	
+	my $convert_command = 
+		"\"$flaccmd\" @flacargs \"$source\"" . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
 
-    if ( ( !$pflags{exists} || $pflags{md5} || $Options{force} )
-        && !$Options{tagsonly} )
-    {
+	$Options{debug} && msg("transcode: $convert_command");
 
-        # Transcode to a temp file in the destdir.
-        # Rename the file if the conversion completes sucessfully
-        # This avoids leaving incomplete files in the destdir
-        # If we're "pretending", don't create a File::Temp object
-        my $tmpfilename;
-        my $tmpfh;
-        if ( $Options{pretend} ) {
-            $tmpfilename = $target;
-        }
-        else {
+	# Convert the file (unless we're pretending}
+	my $exit_value;
+	if ( !$Options{pretend} ) {
+		$exit_value = system($convert_command);
+	}
+	else {
+		$exit_value = 0;
+	}
 
-            # Create the destination directory if it
-            # doesn't already exist
-          	unless (-d $dst_dir) {
-	      		# If necessary, allow a second check. Don't die just because the 
-	      		# dir was created by another child (race condition):
-				mkpath($dst_dir) or (-d $dst_dir)
-					or die "Can't create directory $dst_dir\n"; 
-        	};
-            $tmpfh = new File::Temp(
-                UNLINK => 1,
-                DIR    => $dst_dir,
-                SUFFIX => '.tmp'
-            );
-            $tmpfilename = $tmpfh->filename;
-        }
-		$Options{info}
-            && msg( $pretendString . "Transcoding    \"$source\"" );
+	$Options{debug}
+		&& msg("Exit value from convert command: $exit_value");
 
-        my $convert_command = "\"$flaccmd\" @flacargs \"$source\"" . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
+	if ($exit_value) {
+		msg("$convert_command failed with exit code $exit_value");
 
-        $Options{debug} && msg("transcode: $convert_command");
+		# delete the destfile if it exists
+		unlink $tmpfilename;
 
-        # Convert the file (unless we're pretending}
-        my $exit_value;
-        if ( !$Options{pretend} ) {
-            $exit_value = system($convert_command);
-        }
-        else {
-            $exit_value = 0;
-        }
+		# should check exit status of this command
+		exit($exit_value);
+	}
 
-        $Options{debug}
-            && msg("Exit value from convert command: $exit_value");
+	if ( !$Options{pretend} ) {
 
-        if ($exit_value) {
-            msg("$convert_command failed with exit code $exit_value");
+		# If we get here, assume the conversion has succeeded
+		$tmpfh->unlink_on_destroy(0);
+		$tmpfh->close;
+		croak "Failed to rename '$tmpfilename' to '$target' $!"
+			unless rename( $tmpfilename, $target );
 
-            # delete the destfile if it exists
-            unlink $tmpfilename;
+		# the destfile now exists!
+		$pflags{exists} = 1;
 
-            # should check exit status of this command
+		# and the tags need writing
+		$pflags{tags} = 1;
+	}
 
-            exit($exit_value);
-        }
-
-        if ( !$Options{pretend} ) {
-
-            # If we get here, assume the conversion has succeeded
-            $tmpfh->unlink_on_destroy(0);
-            $tmpfh->close;
-            croak "Failed to rename '$tmpfilename' to '$target' $!"
-                unless rename( $tmpfilename, $target );
-
-            # the destfile now exists!
-            $pflags{exists} = 1;
-
-            # and the tags need writing
-            $pflags{tags} = 1;
-        }
-    }
 
     if ( $Options{debug} ) {
         msg("pf_exists:    $pflags{exists}");
         msg("pf_tags:      $pflags{tags}");
         msg( "\$Options{pretend}:   " . ( $Options{pretend} ? 'set' : 'not set' ) );
-    }
-
+	}
+	
     %$pflags_ref = %pflags;    # this is only to minimize changes
+	
+	return \@return_messages;
 }
 
 sub write_tags {
@@ -813,16 +943,13 @@ sub write_tags {
     my $pflags_ref       = shift;
     my %frames_to_update = %$frames_ref;    # this is only to minimize changes
     my %pflags           = %$pflags_ref;    # this is only to minimize changes
+	my @return_messages = ();
 
     # Write the tags
-    if ($pflags{exists}
-        && (   $pflags{tags}
-            || $Options{force} )
-        )
-    {
+    if ( $pflags{exists} && ( $pflags{tags} || $Options{force} ) ) {
 
-        $Options{info}
-            && msg( $pretendString . "Writing tags to \"$destfilename\"" );
+		# save message to be displayed on screen
+		push @return_messages, $pretendString . "Writing tags to \"$destfilename\"";
 
         if ( !$Options{pretend} ) {
             my $mp3 = MP3::Tag->new($destfilename);
@@ -885,6 +1012,7 @@ sub write_tags {
             # utime $srcstat->mtime, $srcstat->mtime, $destfilename;
         }
     }
+	return \@return_messages;
 }
 
 sub INT_Handler {
@@ -910,8 +1038,7 @@ sub fixUpTrackNumber {
             $trackNum = sprintf( "%02u", $trackNum );
         }
         else {
-            $Options{info}
-                && msg('TRACKNUMBER not numeric');
+			msg_info('TRACKNUMBER not numeric');
         }
     }
     return $trackNum;
