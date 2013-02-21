@@ -1,3 +1,14 @@
+Modified version by Carl Asplund, rev 5 (February 2013)
+ - Introduce (again) progress reporting, this time with full support for parallel processing. The estimated 
+   finish time is given after 20 s of transcoding, based on transcoding rate and the total file size 
+   left to transcode.
+ - No longer output messages directly during transcoding or tagging of a file, but save them in a 
+   buffer and use the callback function "run_on_finish" of Parallel::Forkmanager to display them when 
+   the corresponding child exits.
+ - First perform a separate loop for files that don't require transcoding, while at the same time collecting
+   the names of files that do. This first loop doesn't employ parallel processing, but the second, 
+   transcoding loop does. 
+
 Modified version by Carl Asplund, rev 4 (February 2013)
  - Added option "--delete". When enabled, any files in the destination
    directories which are not accounted for in the source directories will
