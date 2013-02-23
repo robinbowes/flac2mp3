@@ -1,13 +1,19 @@
 Modified version by Carl Asplund, rev 5 (February 2013)
- - Introduce (again) progress reporting, this time with full support for parallel processing. The estimated 
+ - Reintroduce progress reporting, this time with full support for parallel processing. The estimated 
    finish time is given after 20 s of transcoding, based on transcoding rate and the total file size 
    left to transcode.
  - No longer output messages directly during transcoding or tagging of a file, but save them in a 
    buffer and use the callback function "run_on_finish" of Parallel::Forkmanager to display them when 
    the corresponding child exits.
- - First perform a separate loop for files that don't require transcoding, while at the same time collecting
-   the names of files that do. This first loop doesn't employ parallel processing, but the second, 
-   transcoding loop does. 
+ - First perform a separate processing loop for files that don't require transcoding, while at the same time saving
+   the names of the files that do need transcoding. This first loop doesn't employ parallel processing, whereas the second, 
+   transcoding loop does, through the use of the Parallel::Forkmanager module.
+ - Change file permissions of the tempfile/mp3-file in Tag::MP3::ID3v2 to default value (as determined by umask).
+   File permissions will otherwise (on *nix) be 0600 due to the odd ways of the File::Temp module (not observing the umask).
+   0600 file permissions make the files invisible to some software (as is the case with Logitech Media Server). 
+ - Turn off id3 v2.3 unsyncing - again - for increased compatibility with broken software. This time due 
+   to inability of Logitech Media Server to cope with it.
+ - Update Parallel::Forkmanager to v1.0.2
 
 Modified version by Carl Asplund, rev 4 (February 2013)
  - Added option "--delete". When enabled, any files in the destination
