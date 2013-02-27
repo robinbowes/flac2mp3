@@ -162,7 +162,7 @@ my %Options = (
 GetOptions(
     \%Options,     "quiet!",         "tagdiff", "debug!",  "tagsonly!", "force!",
     "usage",       "help",           "version", "pretend", "skipfile!", "skipfilename=s",
-    "processes=i", "tagseparator=s", "lameargs=s", "dontcopy!", "delete"
+    "processes=i", "tagseparator=s", "lameargs=s", "copyfiles", "delete"
 );
 
 # info flag is the inverse of --quiet
@@ -330,7 +330,7 @@ if ($files_to_trancode) {
 };
 
 # If allowed, copy non-flac files to destination dirs
-copy_non_flacs($source_root, $target_root) unless ( $Options{dontcopy} );
+copy_non_flacs($source_root, $target_root) if ( $Options{copyfiles} );
 
 1;
 # ------------ Main program ends here --------------------------------------
@@ -600,7 +600,7 @@ Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--
     --tagseparator=s Use "s" as the separator to join multiple instances of the
                      same tag.
                      Default: "/"
-    --dontcopy       Don't copy non-flac files to dest directories
+    --copyfiles      Copy non-flac files to dest directories
     --delete         Delete surplus files and directories in destination, keeping in sync with source dir
 
 Example: $0 --processes=6 --delete ~/FLAC/ ~/MP3/
