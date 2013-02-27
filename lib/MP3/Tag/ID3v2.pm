@@ -8,6 +8,7 @@ package MP3::Tag::ID3v2;
 
 use strict;
 use File::Basename;
+use File::Temp;
 # use Compress::Zlib;
 
 use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3
@@ -15,7 +16,7 @@ use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3
 	     %back_splt %embedded_Descr
 	    /;
 
-$VERSION = "1.12";
+$VERSION = "1.12_TS"; # custom version of v1.12 w/ thread safe generation of temp files
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
@@ -626,22 +627,21 @@ sub build_tag {
 sub insert_space {
 	my ($self, $insert) = @_;
 	my $mp3obj = $self->{mp3};
+	my $target = $mp3obj->{filename};
 	# !! use a specific tmp-dir here
-	my $tempfile = dirname($mp3obj->{filename}) . "/TMPxx";
-	my $count = 0;
-	while (-e $tempfile . $count . ".tmp") {
-		if ($count++ > 999) {
-			warn "Problems with tempfile\n";
-			return undef;
-		}
-	}
-	$tempfile .= $count . ".tmp";
-	unless (open (NEW, ">$tempfile")) {
+	my $tempfh = new File::Temp(
+                UNLINK => 1,
+                DIR    => dirname($mp3obj->{filename}),
+                SUFFIX => '.tmp'
+            );
+	my $tempfile = $tempfh->filename;
+
+	if ($@) {
 		warn "Can't open '$tempfile' to insert tag\n";
 		return -1;
 	}
 	my ($buf, $pos_old);
-	binmode NEW;
+	binmode $tempfh;
 	$pos_old=0;
 	$mp3obj->seek(0,0);
 	local $\ = '';
@@ -650,12 +650,12 @@ sub insert_space {
 		if ($pos_old < $ins->[0]) {
 			$pos_old += $ins->[0];
 			while ($mp3obj->read(\$buf,$ins->[0]<16384?$ins->[0]:16384)) {
-				print NEW $buf;
+				print $tempfh $buf;
 				$ins->[0] = $ins->[0]<16384?0:$ins->[0]-16384;
 			}
 		}
 		for (my $i = 0; $i<$ins->[2]; $i++) {
-			print NEW chr(0);
+			print $tempfh chr(0);
 		}
 		if ($ins->[1]) {
 			$pos_old += $ins->[1];
@@ -664,17 +664,23 @@ sub insert_space {
 	}
 
 	while ($mp3obj->read(\$buf,16384)) {
-		print NEW $buf;
+		print $tempfh $buf;
 	}
-	close NEW;
+	$tempfh->unlink_on_destroy(0);
+	$tempfh->close;
+            
 	$mp3obj->close;
 
 	# rename tmp-file to orig file
-	unless (( rename $tempfile, $mp3obj->{filename})||
-	    (system("mv",$tempfile,$mp3obj->{filename})==0)) {
-		unlink($tempfile);
-		warn "Couldn't rename temporary file $tempfile to $mp3obj->{filename}\n";
-		return -1;
+	unless ( rename($tempfile,$target) ) {
+		my $delay_duration = 1; 
+		select(undef, undef, undef, $delay_duration);
+		print("-------Sleeping for $delay_duration s\n"); # Hack to avoid some problems on MSWin systems
+		unless ( rename($tempfile, $target) ){ # second try at renaming
+			unlink($tempfile);
+			warn "******* Couldn't rename temporary file $tempfile to $target\n";
+			return -1;
+		}
 	}
 	return 0;
 }
@@ -894,31 +900,26 @@ directly, which will override an old tag.
 sub remove_tag {
     my $self = shift;
     my $mp3obj = $self->{mp3};  
-    my $tempfile = dirname($mp3obj->{filename}) . "/TMPxx";
-    my $count = 0;
-    local $\ = '';
-    while (-e $tempfile . $count . ".tmp") {
-	if ($count++ > 999) {
-	    warn "Problems with tempfile\n";
-	    return undef;
-	}
+
+    my ($tempfh, $tempfile) = eval {
+	tempfile("TMPXXXX", SUFFIX => ".tmp", DIR => dirname($mp3obj->{filename}), UNLINK => 0)
+    };
+    if ($@) {
+	warn "Couldn't write temp file\n";
+	return undef;
     }
-    $tempfile .= $count . ".tmp";
-    if (open (NEW, ">$tempfile")) {
-	my $buf;
-	binmode NEW;
-	$mp3obj->seek($self->{tagsize}+10,0);
-	while ($mp3obj->read(\$buf,16384)) {
-	    print NEW $buf;
-	}
-	close NEW;
+    local $\ = '';
+    my $buf;
+    binmode $tempfh;
+    $mp3obj->seek($self->{tagsize}+10,0);
+    while ($mp3obj->read(\$buf,16384)) {
+	print $tempfh $buf;
+    }
+    close $tempfh;
 	$mp3obj->close;
 	unless (( rename $tempfile, $mp3obj->{filename})||
 		(system("mv",$tempfile,$mp3obj->{filename})==0)) {
 	    warn "Couldn't rename temporary file $tempfile\n";
-	}
-    } else {
-	warn "Couldn't write temp file\n";
 	return undef;
     }
     return 1;
