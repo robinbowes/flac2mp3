@@ -30,6 +30,7 @@ use Getopt::Long;
 use MP3::Tag;
 use Proc::ParallelLoop;
 use Scalar::Util qw/ looks_like_number /;
+use FreezeThaw qw/ cmpStr /;
 
 # ------- User-config options start here --------
 # Assume flac and lame programs are in the path.
@@ -99,6 +100,7 @@ my %MP3frames = (
     'MUSICBRAINZ_TRACKID'     => 'UFID',
     'MUSICBRAINZ_TRMID'       => 'TXXX',
     'MD5'                     => 'TXXX',
+    'PIC'                     => 'APIC',
 
     'REPLAYGAIN_TRACK_PEAK' => 'TXXX',
     'REPLAYGAIN_TRACK_GAIN' => 'TXXX',
@@ -363,6 +365,13 @@ sub read_flac_tags {
 
     # get MD5 checksdum from flac file and add to srcframes hash
     $source_tags->{'MD5'} = $source_header->info('MD5CHECKSUM');
+	
+	# if present, add album art to srcframes hash:
+	# get picture data from flac file and
+	# proceed if a picture metadata block is found (i.e. a valid ref was returned)
+	if ( ref(my $allsrcpictures = $source_header->picture('all')) ) {
+		$source_tags->{'PIC'} = $allsrcpictures;
+	};
 
     return $source_tags;
 }
@@ -385,7 +394,13 @@ sub preprocess_flac_tags {
                 $tags_to_update{$frame} = fixUpFrame( $source_tags->{$frame} );
             }
             else {
-                if ( $src_tag_type eq 'ARRAY' ) {
+	            if ( $frame eq 'PIC' ) {
+		            foreach my $pic ( @{$source_tags->{'PIC'}} ) {
+						$$pic{'description'} = fixUpFrame($$pic{'description'}); # convert from UTF-8 to latin1
+					};
+                	$tags_to_update{$frame} = $source_tags->{$frame};
+            	}
+                elsif ( $src_tag_type eq 'ARRAY' ) {
 
                     # Fixup each value individually
                     map { $_ = fixUpFrame($_) } @{ $source_tags->{$frame} };
@@ -473,6 +488,13 @@ sub examine_destfile_tags {
 
                 $Options{debug}
                     && msg( "values from id3v2 tags:\n" . Dumper \$tagname, \@info );
+
+                # Compare album art
+                if ( $frame eq 'PIC' ) {
+					$pflags{tags} 
+						= compare_src_dest_picture_data($frames_to_update{'PIC'},\@info,$destfilename);
+					next; # don't do any more processing on the picture frame
+				};
 
                 my $dest_text = '';
 
@@ -681,7 +703,12 @@ sub write_tags {
 
                 $Options{debug} && msg("method is $method");
 
-                # Convert utf8 string to Latin1 charset
+                if ( $method eq "APIC" ) {
+					# Add the source picture data to APIC frames in the dest file			     
+					$mp3 = picsToAPICframes($mp3, $frames_to_update{$frame});
+					next; # avoid more processing of this complex tag, jump to next
+         		};
+
                 my $framestring = $frames_to_update{$frame};
 
                 # Only add the frame if framestring is not empty
@@ -747,6 +774,47 @@ sub fixUpTrackNumber {
         }
     }
     return $trackNum;
+}
+
+sub compare_src_dest_picture_data {	
+	my ($allsrcpictures, $alldestpictures, $destfilename) = @_;
+
+	# Create temporary MP3 id3v2 tag      
+	my $mp3_tmp_pic = MP3::Tag->new($destfilename);
+	$mp3_tmp_pic->new_tag("ID3v2");
+		
+	# Write APIC frames to temporary tag 
+	$mp3_tmp_pic = picsToAPICframes($mp3_tmp_pic, $allsrcpictures);
+	
+	# Read back the APIC frames in a format which allows direct 
+	# comparison with destination file data
+	( my $tagname, my @alltmppictures ) =
+		$mp3_tmp_pic->{"ID3v2"}->get_frames( "APIC", 'intact' );
+
+	# Set 'tags don't match' flag to 1 if embedded picture data differs 
+	# between source and destination files. Use cmpStr from FreezeThaw for this:
+	my $pics_dont_match = cmpStr([@alltmppictures],[@$alldestpictures]);
+	($Options{debug} || $Options{tagdiff}) && ($pics_dont_match) 
+		&&	msg("Source and destination picture data NOT equal, " 
+		. "will rewrite destination APIC frames.");		
+
+	return $pics_dont_match
+}
+
+sub picsToAPICframes {
+	# Write pictures to supplied mp3 tag
+	my ($mp3_object, $allpics) = @_;
+	if ($allpics)  {
+		foreach my $thisPic ( @$allpics ) {
+			my $imdata 	= $thisPic->{imageData};
+			my $pictype = $thisPic->{pictureType};
+			my @APICheader 
+				= (0, $$thisPic{mimeType}, chr($pictype), $$thisPic{description});
+			$mp3_object
+				->{"ID3v2"}->add_frame("APIC", @APICheader, $imdata);
+		};
+	};
+	return $mp3_object;
 }
 
 # vim:set softtabstop=4:
