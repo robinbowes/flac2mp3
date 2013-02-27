@@ -6,7 +6,7 @@ Parallel::ForkManager - A simple parallel processing fork manager
 
   use Parallel::ForkManager;
 
-  $pm = Parallel::ForkManager->new($MAX_PROCESSES);
+  $pm = new Parallel::ForkManager($MAX_PROCESSES);
 
   foreach $data (@all_data) {
     # Forks and returns the pid for the child:
@@ -39,7 +39,7 @@ The code for a downloader would look something like this:
   ...
 
   # Max 30 processes for parallel download
-  my $pm = Parallel::ForkManager->new(30);
+  my $pm = new Parallel::ForkManager(30);
 
   foreach my $linkarray (@links) {
     $pm->start and next; # do the fork
@@ -83,11 +83,11 @@ will be forked. This is intended for debugging purposes.
 
 The optional second parameter, $tempdir, is only used if you want the
 children to send back a reference to some data (see RETRIEVING DATASTRUCTURES
-below). If not provided, it is set to $L<File::Temp::tempdir().
+below). If not provided, it is set to $L<File::Spec>->tmpdir().
 
 The new method will die if the temporary directory does not exist or it is not
 a directory, whether you provided this parameter or the
-$L<File::Temp::tempdir() is used.
+$L<File::Spec>->tmpdir() is used.
 
 =item start [ $process_identifier ]  # P
 
@@ -210,7 +210,7 @@ This small example can be used to get URLs in parallel.
 
   use Parallel::ForkManager;
   use LWP::Simple;
-  my $pm= Parallel::ForkManager->new(10);
+  my $pm=new Parallel::ForkManager(10);
   for my $link (@ARGV) {
     $pm->start and next;
     my ($fn)= $link =~ /^.*\/(.*?)$/;
@@ -236,22 +236,25 @@ Example of a program using callbacks to get child exit codes:
   my @names = qw( Fred Jim Lily Steve Jessica Bob Dave Christine Rico Sara );
   # hash to resolve PID's back to child specific information
 
-  my $pm = Parallel::ForkManager->new($max_procs);
+  my $pm = new Parallel::ForkManager($max_procs);
 
   # Setup a callback for when a child finishes up so we can
   # get it's exit code
-  $pm->run_on_finish( sub {
-      my ($pid, $exit_code, $ident) = @_;
+  $pm->run_on_finish(
+    sub { my ($pid, $exit_code, $ident) = @_;
       print "** $ident just got out of the pool ".
         "with PID $pid and exit code: $exit_code\n";
-  });
+    }
+  );
 
-  $pm->run_on_start( sub {
-      my ($pid,$ident)=@_;
+  $pm->run_on_start(
+    sub { my ($pid,$ident)=@_;
       print "** $ident started, pid: $pid\n";
-  });
+    }
+  );
 
-  $pm->run_on_wait( sub {
+  $pm->run_on_wait(
+    sub {
       print "** Have to wait for one children ...\n"
     },
     0.5
@@ -279,7 +282,7 @@ In this simple example, each child sends back a string reference.
   use Parallel::ForkManager 0.7.6;
   use strict;
   
-  my $pm = Parallel::ForkManager->new(2, '/server/path/to/temp/dir/');
+  my $pm = new Parallel::ForkManager(2, '/server/path/to/temp/dir/');
   
   # data structure retrieval and handling
   $pm -> run_on_finish ( # called BEFORE the first call to start()
@@ -323,7 +326,7 @@ process whatever is retrieved.
   use Data::Dumper;  # to display the data structures retrieved.
   use strict;
   
-  my $pm = Parallel::ForkManager->new(20);  # using the system temp dir $L<File::Temp::tempdir()
+  my $pm = new Parallel::ForkManager(20);  # using the system temp dir $L<File::Spec>->tmpdir()
   
   # data structure retrieval and handling
   my %retrieved_responses = ();  # for collecting responses
@@ -435,16 +438,12 @@ package Parallel::ForkManager;
 use POSIX ":sys_wait_h";
 use Storable qw(store retrieve);
 use File::Spec;
-use File::Temp ();
-use File::Path ();
 use strict;
 use vars qw($VERSION);
-$VERSION="1.02";
+$VERSION="0.7.9";
 $VERSION = eval $VERSION;
 
-sub new {
-  my ($c,$processes, $tempdir)=@_;
-
+sub new { my ($c,$processes, $tempdir)=@_;
   my $h={
     max_proc   => $processes,
     processes  => {},
@@ -453,17 +452,14 @@ sub new {
   };
   
   # determine temporary directory for storing data structures
-  # add it to Parallel::ForkManager object so children can use it
-  # We don't let it clean up so it won't do it in the child process
-  # but we have our own DESTROY to do that.
-  $h->{tempdir} = File::Temp::tempdir(CLEANUP => 0);
+  $tempdir = File::Spec->tmpdir() unless (defined($tempdir) && length($tempdir));
+  die qq|Temporary directory "$tempdir" doesn't exist or is not a directory.| unless (-e $tempdir && -d _);  # ensure temp dir exists and is indeed a directory
+  $h->{tempdir} = $tempdir;  # add tempdir to Parallel::ForkManager object so children can use it
   
   return bless($h,ref($c)||$c);
 };
 
-sub start {
-  my ($s,$identification)=@_;
-
+sub start { my ($s,$identification)=@_;
   die "Cannot start another process while you are in the child process"
     if $s->{in_child};
   while ($s->{max_proc} && ( keys %{ $s->{processes} } ) >= $s->{max_proc}) {
@@ -488,9 +484,7 @@ sub start {
   }
 }
 
-sub finish {
-  my ($s, $x, $r)=@_;
-
+sub finish { my ($s, $x, $r)=@_;
   if ( $s->{in_child} ) {
     if (defined($r)) {  # store the child's data structure
       my $storable_tempfile = File::Spec->catfile($s->{tempdir}, 'Parallel-ForkManager-' . $s->{parent_pid} . '-' . $$ . '.txt');
@@ -510,9 +504,7 @@ sub finish {
   return 0;
 }
 
-sub wait_children {
-  my ($s)=@_;
-
+sub wait_children { my ($s)=@_;
   return if !keys %{$s->{processes}};
   my $kid;
   do {
@@ -522,9 +514,7 @@ sub wait_children {
 
 *wait_childs=*wait_children; # compatibility
 
-sub wait_one_child {
-  my ($s,$par)=@_;
-
+sub wait_one_child { my ($s,$par)=@_;
   my $kid;
   while (1) {
     $kid = $s->_waitpid(-1,$par||=0);
@@ -553,9 +543,7 @@ sub wait_one_child {
   $kid;
 };
 
-sub wait_all_children {
-  my ($s)=@_;
-
+sub wait_all_children { my ($s)=@_;
   while (keys %{ $s->{processes} }) {
     $s->on_wait;
     $s->wait_one_child(defined $s->{on_wait_period} ? &WNOHANG : undef);
@@ -564,29 +552,21 @@ sub wait_all_children {
 
 *wait_all_childs=*wait_all_children; # compatibility;
 
-sub run_on_finish {
-  my ($s,$code,$pid)=@_;
-
+sub run_on_finish { my ($s,$code,$pid)=@_;
   $s->{on_finish}->{$pid || 0}=$code;
 }
 
-sub on_finish {
-  my ($s,$pid,@par)=@_;
-
+sub on_finish { my ($s,$pid,@par)=@_;
   my $code=$s->{on_finish}->{$pid} || $s->{on_finish}->{0} or return 0;
   $code->($pid,@par);
 };
 
-sub run_on_wait {
-  my ($s,$code, $period)=@_;
-
+sub run_on_wait { my ($s,$code, $period)=@_;
   $s->{on_wait}=$code;
   $s->{on_wait_period} = $period;
 }
 
-sub on_wait {
-  my ($s)=@_;
-
+sub on_wait { my ($s)=@_;
   if(ref($s->{on_wait}) eq 'CODE') {
     $s->{on_wait}->();
     if (defined $s->{on_wait_period}) {
@@ -596,21 +576,15 @@ sub on_wait {
   };
 };
 
-sub run_on_start {
-  my ($s,$code)=@_;
-
+sub run_on_start { my ($s,$code)=@_;
   $s->{on_start}=$code;
 }
 
-sub on_start {
-  my ($s,@par)=@_;
-
+sub on_start { my ($s,@par)=@_;
   $s->{on_start}->(@par) if ref($s->{on_start}) eq 'CODE';
 };
 
-sub set_max_procs {
-  my ($s, $mp)=@_;
-
+sub set_max_procs { my ($s, $mp)=@_;
   $s->{max_proc} = $mp;
 }
 
@@ -622,9 +596,7 @@ sub _waitpid { # Call waitpid() in the standard Unix fashion.
 
 # On ActiveState Perl 5.6/Win32 build 625, waitpid(-1, &WNOHANG) always
 # blocks unless an actual PID other than -1 is given.
-sub _NT_waitpid {
-  my ($s, $pid, $par) = @_;
-
+sub _NT_waitpid { my ($s, $pid, $par) = @_;
   if ($par == &WNOHANG) { # Need to nonblock on each of our PIDs in the pool.
     my @pids = keys %{ $s->{processes} };
     # Simulate -1 (no processes awaiting cleanup.)
@@ -645,14 +617,6 @@ sub _NT_waitpid {
   local $^W = 0;
   if ($^O eq 'NT' or $^O eq 'MSWin32') {
     *_waitpid = \&_NT_waitpid;
-  }
-}
-
-sub DESTROY {
-  my ($self) = @_;
-
-  if ($self->{parent_pid} == $$ && -d $self->{tempdir}) {
-    File::Path::remove_tree($self->{tempdir});
   }
 }
 
