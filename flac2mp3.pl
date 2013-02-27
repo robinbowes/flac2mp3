@@ -242,6 +242,8 @@ sub path_and_conversion{
 
     # Add the dst_dirs to the dst root and join back together
     $target_path = File::Spec->catdir( @target_root_elements, @target_path_elements );
+    # Add volume for OSes that require it (MSWin etc.) 
+	$target_path = File::Spec->catpath( $target_root_volume, $target_path, '' );
 
     # Get the basename of the dst file
     my ( $target_base, $target_dir, $source_ext ) = fileparse( $source_file, qr{\Q.flac\E$}xmsi );
