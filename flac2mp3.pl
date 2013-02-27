@@ -579,9 +579,6 @@ sub transcode_file {
         && !$Options{tagsonly} )
     {
 
-        $Options{info}
-            && msg( $pretendString . "Transcoding \"$source\"" );
-
         # Transcode to a temp file in the destdir.
         # Rename the file if the conversion completes sucessfully
         # This avoids leaving incomplete files in the destdir
@@ -595,9 +592,12 @@ sub transcode_file {
 
             # Create the destination directory if it
             # doesn't already exist
-            mkpath($dst_dir)
-                or die "Can't create directory $dst_dir\n"
-                unless -d $dst_dir;
+          	unless (-d $dst_dir) {
+	      		# If necessary, allow a second check. Don't die just because the 
+	      		# dir was created by another child (race condition):
+				mkpath($dst_dir) or (-d $dst_dir)
+					or die "Can't create directory $dst_dir\n"; 
+        	};
             $tmpfh = new File::Temp(
                 UNLINK => 1,
                 DIR    => $dst_dir,
@@ -605,6 +605,8 @@ sub transcode_file {
             );
             $tmpfilename = $tmpfh->filename;
         }
+		$Options{info}
+            && msg( $pretendString . "Transcoding    \"$source\"" );
 
         my $convert_command = "\"$flaccmd\" @flacargs \"$source\"" . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
 
@@ -728,7 +730,7 @@ sub write_tags {
                 }
             }
 
-            $mp3->{ID3v2}->write_tag;
+            $mp3->{ID3v2}->write_tag or die("Couldn't write the ID3v2 tag to $destfilename!\n");
 
             $mp3->close();
 
