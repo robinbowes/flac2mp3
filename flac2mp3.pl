@@ -28,7 +28,7 @@ use File::Temp qw/ cleanup /;
 use File::Which;
 use Getopt::Long;
 use MP3::Tag;
-use Proc::ParallelLoop;
+use Parallel::Forkmanager;
 use Scalar::Util qw/ looks_like_number /;
 use FreezeThaw qw/ cmpStr /;
 
@@ -217,25 +217,15 @@ my @flac_files = @{ find_files( $source_root, qr/\.flac$/i ) };
 my ( $target_root_volume, $target_root_path, $target_root_file ) = File::Spec->splitpath( $target_root, 1 );
 my @target_root_elements = File::Spec->splitdir($target_root_path);
 
-my $parallel_supported = ($^O ne 'MSWin32' and $^O ne 'MSWin64');
-
-if (!$parallel_supported) { 
-    msg("Using 1 transcoding processes.\n");
-	if ($Options{processes} > 1) {
-		msg("(Multiple parallel processes are not supported on Windows systems.)\n");
-	}		
-	foreach my $src_file (@flac_files) {
-		path_and_conversion($src_file);
-	}
+# use parallel processing to launch multiple transcoding processes
+msg("Using $Options{processes} transcoding processes.\n");
+my $pm = new Parallel::ForkManager($Options{processes});
+foreach my $src_file (@flac_files) {
+	$pm->start and next; # Forks and returns the pid for the child
+	path_and_conversion($src_file);	
+	$pm->finish; # Terminates the child process
 }
-else {
-	# use parallel processing to launch multiple transcoding processes
-    msg("Using $Options{processes} transcoding processes.\n");
-	pareach [@flac_files], sub {
-	    my $src_file = shift;
-	    path_and_conversion($src_file);	    
-	}, { Max_Workers => $Options{processes} };
-}
+$pm->wait_all_children;
 
 # use parallel processing to launch multiple transcoding processes
 sub path_and_conversion{
