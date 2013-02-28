@@ -636,6 +636,11 @@ sub insert_space {
             );
 	my $tempfile = $tempfh->filename;
 
+	# Change file permissions to default value.
+	# Permissions will otherwise (at least on *nix) 
+	# be 0600 regardless of umask, due the File::Temp module.
+	chmod umask ^ 0666, $tempfile;
+
 	if ($@) {
 		warn "Can't open '$tempfile' to insert tag\n";
 		return -1;
