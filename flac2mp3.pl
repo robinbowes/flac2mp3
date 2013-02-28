@@ -377,7 +377,9 @@ sub find_files {
 
 sub showusage {
     print <<"EOT";
-Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--noskipfile] [--skipfilename=<filename>] [--lameargs='parameter-list'] <flacdir> <mp3dir>    --pretend        Don't actually do anything
+Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--noskipfile] [--skipfilename=<filename>] [--lameargs='parameter-list'] <flacdir> <mp3dir>
+
+    --pretend        Don't actually do anything
     --quiet          Disable informational output to stdout
     --debug          Enable debugging output. For developers only!
     --tagsonly       Don't do any transcoding - just update tags
