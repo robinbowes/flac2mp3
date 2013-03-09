@@ -638,8 +638,7 @@ sub insert_space {
 
 	# Change file permissions to default value.
 	# Permissions will otherwise (at least on *nix) 
-	# be 0600 regardless of umask, due a peculiar choice choice 
-	# by the developers of the File::Temp module.
+	# be 0600 regardless of umask, due the File::Temp module.
 	chmod umask ^ 0666, $tempfile;
 
 	if ($@) {
