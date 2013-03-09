@@ -53,7 +53,6 @@ my $lamecmd = 'lame';
 # Modify lame options if required
 my @lameargs = qw (
     --noreplaygain
-    --vbr-new
     -V 2
     -h
     --nohist
@@ -386,7 +385,7 @@ Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--
     --force          Force transcoding and tag update even if not required
     --tagdiff	     Print source/dest tag values if different
     --lameargs='s'   specify parameter(string) to be passed to the LAME Encoder
-                     Default: "--noreplaygain --vbr-new -V 2 -h --nohist --quiet"
+                     Default: "--noreplaygain -V 2 -h --nohist --quiet"
     --noskipfile     Ignore any skip files
     --skipfilename   Specify the name of the skip file.
                      Default: flac2mp3.ignore
