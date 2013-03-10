@@ -53,6 +53,7 @@ my $lamecmd = 'lame';
 # Modify lame options if required
 my @lameargs = qw (
     --noreplaygain
+    --vbr-new
     -V 2
     -h
     --nohist
@@ -191,10 +192,6 @@ foreach my $cmd ( $flaccmd, $lamecmd ) {
     croak "$cmd not found" unless $cmdpath;
     $Options{info} && msg("Using $cmd from: $cmdpath");
 }
-
-# Turn off unsyncing, due to broken implementation in
-# some software (such as Logitech Media Server)
-MP3::Tag->config(id3v23_unsync => 0);
 
 # Convert directories to absolute paths
 $source_root  = File::Spec->rel2abs($source_root);
@@ -382,7 +379,7 @@ Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--
     --force          Force transcoding and tag update even if not required
     --tagdiff	     Print source/dest tag values if different
     --lameargs='s'   specify parameter(string) to be passed to the LAME Encoder
-                     Default: "--noreplaygain -V 2 -h --nohist --quiet"
+                     Default: "--noreplaygain --vbr-new -V 2 -h --nohist --quiet"
     --noskipfile     Ignore any skip files
     --skipfilename   Specify the name of the skip file.
                      Default: flac2mp3.ignore
