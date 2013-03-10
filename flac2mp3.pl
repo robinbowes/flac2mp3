@@ -47,8 +47,18 @@ use Digest::MD5;
 #      c:/windows/system32/flac.exe
 #    or
 #      c:\\windows\\system32\\flac.exe
-my $flaccmd = 'flac';
-my $lamecmd = 'lame';
+
+my ($flaccmd, $lamecmd);
+if ($^O eq 'MSWin32' or $^O eq 'MSWin64') {
+	# This is an example of typical Windows filepaths. 
+	# Change them if necessary:
+	$flaccmd = q|C:\Program Files (x86)\FLAC\flac.exe|;
+	$lamecmd = q|C:\Program Files\LAME\lame.exe|;
+}
+else {
+	$flaccmd = 'flac';
+	$lamecmd = 'lame';
+}
 
 # Modify lame options if required
 my @lameargs = qw (
