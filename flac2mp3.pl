@@ -224,12 +224,12 @@ msg_info( $pretendString . "Processing directory: $source_root" );
 
 # Now look for files in the source dir
 # (following symlinks)
+my %flac_mp3_files = get_all_paths('name', '.flac', $source_root, $target_root, '.mp3');
+my @flac_files = sort keys { %flac_mp3_files };
+	
+my $file_count = scalar @flac_files;
+msg_info( "Found $file_count flac file" . ( $file_count > 1 ? 's'  : '' . "\n" ) );
 
-my @flac_files = @{ find_files( $source_root, qr/\.flac$/i ) };
-
-# Get directories from target_dir and put in an array
-my ( $target_root_volume, $target_root_path, $target_root_file ) = File::Spec->splitpath( $target_root, 1 );
-my @target_root_elements = File::Spec->splitdir($target_root_path);
 
 # use parallel processing to launch multiple transcoding processes
 msg_info("Using $Options{processes} transcoding processes.\n");
@@ -243,9 +243,8 @@ $pm->wait_all_children;
 
 
 if ( $Options{copyfiles} ) {
-    my @non_flac_files 
-	= sort File::Find::Rule->file()->extras( { follow => 1 } )->not_name(qr/\.flac$/i)
-  	->in($source_root);
+    my %non_flac_files = get_all_paths('not_name', '.flac', $source_root, $target_root, '');
+    my @non_flac_files = keys %non_flac_files; 
     my $non_flac_file_count = scalar @non_flac_files;
     msg_info( "Found $non_flac_file_count non-flac file" .( $non_flac_file_count != 1 ? 's'  : '' . "\n" ) );
 
@@ -254,7 +253,7 @@ if ( $Options{copyfiles} ) {
     my $cntr_all = 0;
     my $cntr_copied = 0;
     foreach my $src_file (@non_flac_files) {
-		my ($dst_dir, $dst_file) = get_dest_file_path_non_flac($src_file);
+		my $dst_file = $non_flac_files{$src_file};
 	   	# Flag which determines if file should be copied:
 		my $do_copy = 1;
 		# Don't copy file if it already exists in dest directory and 
@@ -269,6 +268,8 @@ if ( $Options{copyfiles} ) {
 		else {
 			# Create the destination directory if it
 			# doesn't already exist
+			(undef, my $dst_dir) = 
+				File::Basename::fileparse($dst_file); # retrieve directory name
 			unless ( $Options{pretend} || -d $dst_dir ) {
 				mkpath($dst_dir) or die "Can't create directory $dst_dir\n";
 			}
@@ -291,29 +292,6 @@ if ( $Options{copyfiles} ) {
     msg_info("\n");	# double line feed
 };
 
-
-sub get_dest_file_path_non_flac {
-    my $source = shift;
-
-    # remove $source_dir from front of $src_file
-    my $target = $source;
-    $target =~ s{\Q$source_root/\E}{}xms;
-
-    # Get directories in target and put in an array
-    # Note: the filename is the source file name
-    my ( $target_volume, $target_path, $source_file ) = File::Spec->splitpath($target);
-    my @target_path_elements = File::Spec->splitdir($target_path);
-
-    # Add the dst_dirs to the dst root and join back together
-    $target_path = File::Spec->catdir( @target_root_elements, @target_path_elements );
-
-    # Now join it all together to get the complete path of the dest_file
-    $target = File::Spec->catpath( $target_root_volume, $target_path, $source_file );
-	my $target_dir = File::Spec->catpath( $target_root_volume, $target_path, '' );
-
-    return $target_dir,$target;
-};
-
 sub get_md5_of_non_flac_file {
     my $file = shift;
     open(FILE, $file) or die "Can't open '$file': $!";
@@ -323,42 +301,56 @@ sub get_md5_of_non_flac_file {
     return $md5_code;
 };
 
-sub path_and_conversion{
-    my $source = shift;
+sub get_all_dirs {
+	my ($root, $new_root) = @_;
+	#	we supply no suffix, so we search for directories (not files):
+	my @orig_dirs = @{ find_files_or_dirs($root) };
 
-    # remove $source_dir from front of $src_file
-    my $target = $source;
-    $target =~ s{\Q$source_root/\E}{}xms;
+	my @dirs = ();
+	foreach my $dir (@orig_dirs) {
+		# strip source root dir from path...
+		my $rel_path = File::Spec->abs2rel( $dir, $root );
+		# then replace it with target root dir
+		push @dirs, File::Spec->rel2abs( $rel_path, $new_root );
+	}
+	return sort @dirs;
+}
 
-    # Get directories in target and put in an array
-    # Note: the filename is the source file name
-    my ( $target_volume, $target_path, $source_file ) = File::Spec->splitpath($target);
-    my @target_path_elements = File::Spec->splitdir($target_path);
+sub get_all_paths {
+	my ($rule, $suffix, $root, $new_root, $new_suffix) = @_;
+	my @orig_files = @{ find_files_or_dirs($root, $rule, $suffix) };
 
-    # Add the dst_dirs to the dst root and join back together
-    $target_path = File::Spec->catdir( @target_root_elements, @target_path_elements );
-    # Add volume for OSes that require it (MSWin etc.) 
-	$target_path = File::Spec->catpath( $target_root_volume, $target_path, '' );
+	# Even if $root = $new_root, we need to do the following operations 
+	# to get a consistent path format (otherwise problematic in e.g. MS Win) 
+	# that is suitable for later string comparison: 
+	my %paths = ();
+	foreach my $src (@orig_files) {
+		# Strip source root dir from file path
+		my $rel_path = File::Spec->abs2rel( $src, $root );
+		# ... then replace it with target root dir and change file suffix.
+		($paths{$src} = File::Spec->rel2abs( $rel_path, $new_root ) ) =~ s{$suffix$}{$new_suffix}xmsi;
+	}
+	return %paths
+}
 
-    # Get the basename of the dst file
-    my ( $target_base, $target_dir, $source_ext ) = fileparse( $source_file, qr{\Q.flac\E$}xmsi );
-
-    # Now join it all together to get the complete path of the dest_file
-    $target = File::Spec->catpath( $target_volume, $target_path, $target_base . '.mp3' );
-
-    convert_file( $source, $target );
-};
-
-1;
-
-sub find_files {
-    my $path  = shift;
-    my $regex = shift;
-
-    my @found_files;
-
-    my $found_list = File::Find::Rule->extras( { follow => 1 } )->name($regex);
-    if ( $Options{skipfile} ) {
+sub find_files_or_dirs {
+	my $path = shift;
+	my $rule = shift;
+    my $suffix = shift;
+    
+	# If a matching rule and file suffix is defined we are looking for files, 
+	# otherwise we are looking for directories.
+    my $found_list;
+	if (defined $rule && defined $suffix) {
+		$found_list = File::Find::Rule->file()->extras( { follow => 1 } )->$rule(qr{$suffix$}xmsi)
+	}
+	else {
+		$found_list = File::Find::Rule->directory->extras( { follow => 1 } )
+	};
+	
+	# skip any directories where a "skipfile" is found  
+    my @found;
+	if ( $Options{skipfile} && ($path eq $source_root) ) {
         my $skip_list = File::Find::Rule->directory->exec(
             sub {
                 my ( $fname, $fpath, $frpath ) = @_;
@@ -370,20 +362,20 @@ sub find_files {
                 }
             }
         )->prune->discard;
-        @found_files = sort File::Find::Rule->or( $skip_list, $found_list )->in($path);
+        @found = sort File::Find::Rule->or( $skip_list, $found_list )->in($path);
     }
     else {
-
-        @found_files = sort $found_list ->in($path);
+        @found = sort $found_list ->in($path);		
     }
-
-    $Options{debug} && msg( Dumper(@found_files) );
-
-    my $file_count = scalar @found_files;
-    msg_info( "Found $file_count flac file" .                   ( $file_count > 1         ? 's'  : '' . "\n" ) );
-
-    return \@found_files;
+return \@found;
 }
+
+sub path_and_conversion{
+    my $source = shift;
+	my $target = $flac_mp3_files{$source};
+
+    convert_file( $source, $target );
+};
 
 sub showusage {
     print <<"EOT";
@@ -671,9 +663,6 @@ sub transcode_file {
     my $pflags_ref = shift;
     my %pflags     = %$pflags_ref;    # this is only to minimize changes
 
-    my ( $target_volume, $target_dir, $target_filename ) = File::Spec->splitpath($target);
-    my $dst_dir = File::Spec->catpath( $target_volume, $target_dir, '' );
-
     if ( ( !$pflags{exists} || $pflags{md5} || $Options{force} )
         && !$Options{tagsonly} )
     {
@@ -688,6 +677,8 @@ sub transcode_file {
             $tmpfilename = $target;
         }
         else {
+			# retrieve destination directory name
+			(undef, my $dst_dir) = File::Basename::fileparse($target); 
 
             # Create the destination directory if it
             # doesn't already exist
