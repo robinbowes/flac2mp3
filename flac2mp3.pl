@@ -47,18 +47,8 @@ use Digest::MD5;
 #      c:/windows/system32/flac.exe
 #    or
 #      c:\\windows\\system32\\flac.exe
-
-my ($flaccmd, $lamecmd);
-if ($^O eq 'MSWin32' or $^O eq 'MSWin64') {
-	# This is an example of typical Windows filepaths. 
-	# Change them if necessary:
-	$flaccmd = q|C:\Program Files (x86)\FLAC\flac.exe|;
-	$lamecmd = q|C:\Program Files\LAME\lame.exe|;
-}
-else {
-	$flaccmd = 'flac';
-	$lamecmd = 'lame';
-}
+my $flaccmd = 'flac';
+my $lamecmd = 'lame';
 
 # Modify lame options if required
 my @lameargs = qw (
@@ -265,11 +255,11 @@ if ( $Options{copyfiles} ) {
 			};
 		}
 		else {
-			# Create the destination directory if it
-			# doesn't already exist
-			unless ( $Options{pretend} || -d $dst_dir ) {
-				mkpath($dst_dir) or die "Can't create directory $dst_dir\n";
-			}
+		# Create the destination directory if it
+		# doesn't already exist
+		mkpath($dst_dir) 
+			or die "Can't create directory $dst_dir\n"
+			unless -d $dst_dir;
 		};
 		if ( $do_copy ) {
 			unless ( $Options{pretend} ) { 
