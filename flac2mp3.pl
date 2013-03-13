@@ -246,64 +246,14 @@ foreach my $src_file (@flac_files) {
 $pm->wait_all_children;
 
 
-if ( $Options{copyfiles} ) {
-    my %non_flac_files = get_all_paths('not_name', '.flac', $source_root, $target_root, '');
-    my @non_flac_files = keys %non_flac_files; 
-    my $non_flac_file_count = scalar @non_flac_files;
-    msg_info( "Found $non_flac_file_count non-flac file" .( $non_flac_file_count != 1 ? 's'  : '' . "\n" ) );
+# If allowed, copy non-flac files to destination dirs
+copy_non_flacs($source_root, $target_root) if ( $Options{copyfiles} );
 
-    # Copy non-flac files from source to dest directories
-    my $t0 = time;
-    my $cntr_all = 0;
-    my $cntr_copied = 0;
-    foreach my $src_file (@non_flac_files) {
-		my $dst_file = $non_flac_files{$src_file};
-	   	# Flag which determines if file should be copied:
-		my $do_copy = 1;
-		# Don't copy file if it already exists in dest directory and 
-		# has identical md5 to the source file   	
-		if (-e $dst_file) {
-			my $src_md5 = get_md5_of_non_flac_file($src_file);
-			my $dst_md5 = get_md5_of_non_flac_file($dst_file);
-			if ($src_md5 eq $dst_md5) {
-				$do_copy = 0; # Don't copy if equal md5
-			};
-		}
-		else {
-			# Create the destination directory if it
-			# doesn't already exist
-			(undef, my $dst_dir) = 
-				File::Basename::fileparse($dst_file); # retrieve directory name
-			unless ( $Options{pretend} || -d $dst_dir ) {
-				mkpath($dst_dir) or die "Can't create directory $dst_dir\n";
-			}
-		};
-		if ( $do_copy ) {
-			unless ( $Options{pretend} ) { 
-				copy($src_file,$dst_file) || die("Can't copy this FILE: $src_file !");
-			}
-			$cntr_copied ++;
-		};
-		$cntr_all ++;
-		# Show the progress every second
-		if ( $Options{info} && 
-			( ((time - $t0) >= 1) || ($cntr_all==$non_flac_file_count) ) ) {
-			$t0 = time;
-			print("\r" . $pretendString . $cntr_copied . 
-				" non-flac files of " . $cntr_all ." were copied to dest directories.");
-		};
-    };
-    msg_info("\n");	# double line feed
-};
+1;
+# ------------ Main program ends here --------------------------------------
 
-sub get_md5_of_non_flac_file {
-    my $file = shift;
-    open(FILE, $file) or die "Can't open '$file': $!";
-    binmode(FILE);
-    my $md5_code = Digest::MD5->new->addfile(*FILE)->hexdigest;
-    close FILE;
-    return $md5_code;
-};
+
+# ------------ Subroutines start here --------------------------------------
 
 sub delete_excess_files_from_dest {
 	my ($source_root, $target_root) = @_;
@@ -431,6 +381,68 @@ sub find_files_or_dirs {
     }
 return \@found;
 }
+
+sub copy_non_flacs {
+	my ($source_root, $target_root) = @_;
+	
+	my %non_flac_files = get_all_paths('not_name', '.flac', $source_root, $target_root, '');
+    my @non_flac_files = keys %non_flac_files; 
+    my $non_flac_file_count = scalar @non_flac_files;
+    msg_info( "Found $non_flac_file_count non-flac file" . 
+		( $non_flac_file_count != 1 ? 's'  : '' . "\n" ) );
+
+    # Copy non-flac files from source to dest directories
+    my $t0 = time;
+    my $cntr_all = 0;
+    my $cntr_copied = 0;
+    foreach my $src_file (@non_flac_files) {
+		my $dst_file = $non_flac_files{$src_file};
+		# Flag which determines if file should be copied:
+		my $do_copy = 1;
+		# Don't copy file if it already exists in dest directory and 
+		# has identical md5 to the source file   	
+		if (-e $dst_file) {
+			my $src_md5 = get_md5_of_non_flac_file($src_file);
+			my $dst_md5 = get_md5_of_non_flac_file($dst_file);
+			if ($src_md5 eq $dst_md5) {
+				$do_copy = 0; # Don't copy if equal md5
+			};
+		}
+		else {
+			# Create the destination directory if it
+			# doesn't already exist
+			(undef, my $dst_dir) = 
+				File::Basename::fileparse($dst_file); # retrieve directory name
+			unless ( $Options{pretend} || -d $dst_dir ) {
+				mkpath($dst_dir) or die "Can't create directory $dst_dir\n";
+			}
+		};
+		if ( $do_copy ) {
+			unless ( $Options{pretend} ) { 
+				copy($src_file,$dst_file) || die("Can't copy this FILE: $src_file !");
+			}
+			$cntr_copied ++;
+		};
+		$cntr_all ++;
+		# Show the progress every second
+		if ( $Options{info} && 
+			( ((time - $t0) >= 1) || ($cntr_all==$non_flac_file_count) ) ) {
+			$t0 = time;
+			print("\r" . $pretendString . $cntr_copied . 
+				" non-flac files of " . $cntr_all ." were copied to dest directories.");
+		};
+    };
+    msg_info("\n");	# double line feed
+};
+
+sub get_md5_of_non_flac_file {
+    my $file = shift;
+    open(FILE, $file) or die "Can't open '$file': $!";
+    binmode(FILE);
+    my $md5_code = Digest::MD5->new->addfile(*FILE)->hexdigest;
+    close FILE;
+    return $md5_code;
+};
 
 sub path_and_conversion{
     my $source = shift;
