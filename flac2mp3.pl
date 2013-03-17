@@ -448,7 +448,28 @@ sub path_and_conversion{
     my $source = shift;
 	my $target = $flac_mp3_files{$source};
 
-    convert_file( $source, $target );
+    $Options{debug} && msg("source: '$source'");
+    $Options{debug} && msg("target: '$target'");
+
+    # Step 1: get tags from flac file
+    my $source_tags = read_flac_tags($source);
+
+    # Step 2: hash to hold tags that will be updated
+    my $tags_to_update = preprocess_flac_tags( $source_tags );
+
+    # Step 3: Initialise file processing flags
+    my ($pflags) = examine_destfile_tags( $target, $tags_to_update );
+
+
+	if ( ( !$$pflags{exists} || $$pflags{md5} || $Options{force} )
+        && !$Options{tagsonly} ) {
+
+		# Step 4: Transcode the file based on the processing flags
+		transcode_file( $source, $target, $pflags );
+	};
+
+    # Step 5: Write the tags based on the processing flags
+	write_tags( $target, $tags_to_update, $pflags );
 };
 
 sub showusage {
@@ -485,28 +506,6 @@ sub msg {
 sub msg_info {
 	# display only if "--quiet" option is not in use
 	$Options{info} && msg(@_)
-}
-
-sub convert_file {
-    my ( $source, $target ) = @_;
-
-    $Options{debug} && msg("source: '$source'");
-    $Options{debug} && msg("target: '$target'");
-
-    # get tags from flac file
-    my $source_tags = read_flac_tags($source);
-
-    # hash to hold tags that will be updated
-    my $tags_to_update = preprocess_flac_tags( $source_tags );
-
-    # Initialise file processing flags
-    my $pflags = examine_destfile_tags( $target, $tags_to_update );
-
-    # Transcode the file based on the processing flags
-    transcode_file( $source, $target, $pflags );
-
-    # Write the tags based on the processing flags
-    write_tags( $target, $tags_to_update, $pflags );
 }
 
 sub read_flac_tags {
@@ -738,88 +737,84 @@ sub transcode_file {
     my $pflags_ref = shift;
     my %pflags     = %$pflags_ref;    # this is only to minimize changes
 
-    if ( ( !$pflags{exists} || $pflags{md5} || $Options{force} )
-        && !$Options{tagsonly} )
-    {
+	# Transcode to a temp file in the destdir.
+	# Rename the file if the conversion completes sucessfully
+	# This avoids leaving incomplete files in the destdir
+	# If we're "pretending", don't create a File::Temp object
+	my $tmpfilename;
+	my $tmpfh;
+	if ( $Options{pretend} ) {
+		$tmpfilename = $target;
+	}
+	else {
+		# retrieve destination directory name
+		(undef, my $dst_dir) = File::Basename::fileparse($target);
 
-        # Transcode to a temp file in the destdir.
-        # Rename the file if the conversion completes sucessfully
-        # This avoids leaving incomplete files in the destdir
-        # If we're "pretending", don't create a File::Temp object
-        my $tmpfilename;
-        my $tmpfh;
-        if ( $Options{pretend} ) {
-            $tmpfilename = $target;
-        }
-        else {
-			# retrieve destination directory name
-			(undef, my $dst_dir) = File::Basename::fileparse($target); 
+		# Create the destination directory if it
+		# doesn't already exist
+		unless (-d $dst_dir) {
+			# If necessary, allow a second check. Don't die just because the
+			# dir was created by another child (race condition):
+			mkpath($dst_dir) or (-d $dst_dir)
+				or die "Can't create directory $dst_dir\n";
+		};
+		$tmpfh = new File::Temp(
+			UNLINK => 1,
+			DIR    => $dst_dir,
+			SUFFIX => '.tmp'
+		);
+		$tmpfilename = $tmpfh->filename;
+	}
+	msg_info( $pretendString . "Transcoding    \"$source\"" );
 
-            # Create the destination directory if it
-            # doesn't already exist
-          	unless (-d $dst_dir) {
-	      		# If necessary, allow a second check. Don't die just because the 
-	      		# dir was created by another child (race condition):
-				mkpath($dst_dir) or (-d $dst_dir)
-					or die "Can't create directory $dst_dir\n"; 
-        	};
-            $tmpfh = new File::Temp(
-                UNLINK => 1,
-                DIR    => $dst_dir,
-                SUFFIX => '.tmp'
-            );
-            $tmpfilename = $tmpfh->filename;
-        }
-		msg_info( $pretendString . "Transcoding    \"$source\"" );
+	my $convert_command = "\"$flaccmd\" @flacargs \"$source\"" . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
 
-        my $convert_command = "\"$flaccmd\" @flacargs \"$source\"" . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
+	$Options{debug} && msg("transcode: $convert_command");
 
-        $Options{debug} && msg("transcode: $convert_command");
+	# Convert the file (unless we're pretending}
+	my $exit_value;
+	if ( !$Options{pretend} ) {
+		$exit_value = system($convert_command);
+	}
+	else {
+		$exit_value = 0;
+	}
 
-        # Convert the file (unless we're pretending}
-        my $exit_value;
-        if ( !$Options{pretend} ) {
-            $exit_value = system($convert_command);
-        }
-        else {
-            $exit_value = 0;
-        }
+	$Options{debug}
+		&& msg("Exit value from convert command: $exit_value");
 
-        $Options{debug}
-            && msg("Exit value from convert command: $exit_value");
+	if ($exit_value) {
+		msg("$convert_command failed with exit code $exit_value");
 
-        if ($exit_value) {
-            msg("$convert_command failed with exit code $exit_value");
+		# delete the destfile if it exists
+		unlink $tmpfilename;
 
-            # delete the destfile if it exists
-            unlink $tmpfilename;
+		# should check exit status of this command
 
-            # should check exit status of this command
+		exit($exit_value);
+	}
 
-            exit($exit_value);
-        }
+	if ( !$Options{pretend} ) {
 
-        if ( !$Options{pretend} ) {
+		# If we get here, assume the conversion has succeeded
+		$tmpfh->unlink_on_destroy(0);
+		$tmpfh->close;
+		croak "Failed to rename '$tmpfilename' to '$target' $!"
+			unless rename( $tmpfilename, $target );
 
-            # If we get here, assume the conversion has succeeded
-            $tmpfh->unlink_on_destroy(0);
-            $tmpfh->close;
-            croak "Failed to rename '$tmpfilename' to '$target' $!"
-                unless rename( $tmpfilename, $target );
+		# the destfile now exists!
+		$pflags{exists} = 1;
 
-            # the destfile now exists!
-            $pflags{exists} = 1;
+		# and the tags need writing
+		$pflags{tags} = 1;
+	}
 
-            # and the tags need writing
-            $pflags{tags} = 1;
-        }
-    }
 
     if ( $Options{debug} ) {
         msg("pf_exists:    $pflags{exists}");
         msg("pf_tags:      $pflags{tags}");
         msg( "\$Options{pretend}:   " . ( $Options{pretend} ? 'set' : 'not set' ) );
-    }
+	}
 
     %$pflags_ref = %pflags;    # this is only to minimize changes
 }
