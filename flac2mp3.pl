@@ -234,14 +234,34 @@ msg_info( "Found $file_count flac file" . ( $file_count > 1 ? 's'  : '' . "\n" )
 # it in perfect sync with (i.e. a mirror of) the source directory.  
 delete_excess_files_from_dest($source_root, $target_root) if ( $Options{delete} ) ;
 
+my $pm = new Parallel::ForkManager($Options{processes});
+$pm->run_on_finish( sub {
+	# This callback code is run after each transcode and outputs messages generated
+	# by the children
+	#
+	# According to the Parallel::Forkmanager documentation, the structure of the
+	# input data @_ to this callback function is as follows:
+	# ($pid, $exit_code, $ident, $exit_signal, $core_dump, $data_structure_reference)
+	my $src = $_[2]; # this is "$ident"
+	my $messages = $_[5]; # this is "$data_structure_reference"
+
+	# display information about the transcoded/tagged file
+	foreach my $string ( @$messages ) {
+			msg_info($string);
+	}
+});
 
 # use parallel processing to launch multiple transcoding processes
 msg_info("Using $Options{processes} transcoding processes.\n");
-my $pm = new Parallel::ForkManager($Options{processes});
+
 foreach my $src_file (@flac_files) {
-	$pm->start and next; # Forks and returns the pid for the child
-	path_and_conversion($src_file);	
-	$pm->finish; # Terminates the child process
+	$pm->start($src_file) and next; # forks here
+
+	# process file and generate messages with file info
+	my $messageref = path_and_conversion($src_file);
+
+	# terminate child process, send messages to callback sub
+	$pm->finish(0, $messageref );
 }
 $pm->wait_all_children;
 
@@ -447,6 +467,7 @@ sub get_md5_of_non_flac_file {
 sub path_and_conversion{
     my $source = shift;
 	my $target = $flac_mp3_files{$source};
+	my @messages = ();
 
     $Options{debug} && msg("source: '$source'");
     $Options{debug} && msg("target: '$target'");
@@ -458,18 +479,22 @@ sub path_and_conversion{
     my $tags_to_update = preprocess_flac_tags( $source_tags );
 
     # Step 3: Initialise file processing flags
-    my ($pflags) = examine_destfile_tags( $target, $tags_to_update );
-
+    my ($pflags, $mess) = examine_destfile_tags( $target, $tags_to_update );
+	push @messages, @$mess;
 
 	if ( ( !$$pflags{exists} || $$pflags{md5} || $Options{force} )
         && !$Options{tagsonly} ) {
 
 		# Step 4: Transcode the file based on the processing flags
-		transcode_file( $source, $target, $pflags );
+		$mess = transcode_file( $source, $target, $pflags );
+		push @messages, @$mess;
 	};
 
     # Step 5: Write the tags based on the processing flags
-	write_tags( $target, $tags_to_update, $pflags );
+	$mess = write_tags( $target, $tags_to_update, $pflags );
+    push @messages, @$mess;
+
+	return \@messages;
 };
 
 sub showusage {
@@ -594,6 +619,7 @@ sub examine_destfile_tags {
     my $destfilename     = shift;
     my $frames_ref       = shift;
     my %frames_to_update = %$frames_ref;    # this is only to minimize changes
+	my @return_messages = ();
 
     # Initialise file processing flags
     my %pflags = (
@@ -703,9 +729,11 @@ sub examine_destfile_tags {
                 if ( $dest_text ne $srcframe ) {
                     $pflags{tags} = 1;
                     if ( $Options{tagdiff} ) {
-                        msg("frame: '$frame'");
-                        msg("srcframe value: '$srcframe'");
-                        msg("destframe value: '$dest_text'");
+						push @return_messages, (
+							"frame: '$frame'",
+							"srcframe value: '$srcframe'",
+							"destframe value: '$dest_text'"
+						);
                     }
                 }
             }
@@ -728,7 +756,7 @@ sub examine_destfile_tags {
         msg( Dumper \%frames_to_update );
     }
 
-    return \%pflags;
+    return \%pflags, \@return_messages;
 }
 
 sub transcode_file {
@@ -736,6 +764,7 @@ sub transcode_file {
     my $target     = shift;
     my $pflags_ref = shift;
     my %pflags     = %$pflags_ref;    # this is only to minimize changes
+	my @return_messages = ();
 
 	# Transcode to a temp file in the destdir.
 	# Rename the file if the conversion completes sucessfully
@@ -765,7 +794,8 @@ sub transcode_file {
 		);
 		$tmpfilename = $tmpfh->filename;
 	}
-	msg_info( $pretendString . "Transcoding    \"$source\"" );
+	# Save message to be displayed on screen to the buffer
+	push @return_messages, $pretendString . "Transcoding    \"$source\"" ;
 
 	my $convert_command = "\"$flaccmd\" @flacargs \"$source\"" . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
 
@@ -817,6 +847,8 @@ sub transcode_file {
 	}
 
     %$pflags_ref = %pflags;    # this is only to minimize changes
+
+	return \@return_messages;
 }
 
 sub write_tags {
@@ -825,11 +857,13 @@ sub write_tags {
     my $pflags_ref       = shift;
     my %frames_to_update = %$frames_ref;    # this is only to minimize changes
     my %pflags           = %$pflags_ref;    # this is only to minimize changes
+	my @return_messages = ();
 
     # Write the tags
     if ( $pflags{exists} && ( $pflags{tags} || $Options{force} ) ) {
 
-        msg_info( $pretendString . "Writing tags to \"$destfilename\"" );
+		# save message to be displayed on screen
+		push @return_messages, $pretendString . "Writing tags to \"$destfilename\"";
 
         if ( !$Options{pretend} ) {
             my $mp3 = MP3::Tag->new($destfilename);
@@ -892,6 +926,7 @@ sub write_tags {
             # utime $srcstat->mtime, $srcstat->mtime, $destfilename;
         }
     }
+	return \@return_messages;
 }
 
 sub INT_Handler {
