@@ -234,37 +234,85 @@ msg_info( "Found $file_count flac file" . ( $file_count > 1 ? 's'  : '' . "\n" )
 # it in perfect sync with (i.e. a mirror of) the source directory.  
 delete_excess_files_from_dest($source_root, $target_root) if ( $Options{delete} ) ;
 
-my $pm = new Parallel::ForkManager($Options{processes});
-$pm->run_on_finish( sub {
-	# This callback code is run after each transcode and outputs messages generated
-	# by the children
-	#
-	# According to the Parallel::Forkmanager documentation, the structure of the
-	# input data @_ to this callback function is as follows:
-	# ($pid, $exit_code, $ident, $exit_signal, $core_dump, $data_structure_reference)
-	my $src = $_[2]; # this is "$ident"
-	my $messages = $_[5]; # this is "$data_structure_reference"
-
-	# display information about the transcoded/tagged file
-	foreach my $string ( @$messages ) {
-			msg_info($string);
-	}
-});
-
-# use parallel processing to launch multiple transcoding processes
-msg_info("Using $Options{processes} transcoding processes.\n");
-
+# Traverse all flac-files, but process only those that don't need transcoding.
+# Save for later the name and size of each of the flac files that DO need transcoding.
+my %flac_file_size = ();
+my $total_file_size_to_transcode = 0;
+my $cntr_processed = 0;
+my $cntr_all;
+my $t0 = 0;
 foreach my $src_file (@flac_files) {
-	$pm->start($src_file) and next; # forks here
+	if ( $Options{force} || ( (my $result = path_and_conversion($src_file,0)) == 1 ) ) {
+		my $filesize = -s $src_file; # this file needs transcoding, get the size
+		# save size data in a hash
+		$flac_file_size{$src_file} = $filesize;
+		$total_file_size_to_transcode += $filesize;
+	}
+	else {
+		$cntr_processed++;
+		if ( scalar @$result) {
+			msg_info("");
+			foreach my $string ( @$result ) {
+				msg_info($string);
+			}
+		}
+	};
+	$cntr_all ++;
 
-	# process file and generate messages with file info
-	my $messageref = path_and_conversion($src_file);
+	# Show the progress every second
+	if ( $Options{info} &&
+		( ($Options{force}) || ((time - $t0) >= 1) || ($cntr_all==$file_count) ) ) {
+		$t0 = time;
+		print("\r" . $cntr_processed . " of " . $cntr_all . " flac files were processed without transcoding.");
+	};
 
-	# terminate child process, send messages to callback sub
-	$pm->finish(0, $messageref );
 }
-$pm->wait_all_children;
+msg_info("");
 
+
+my $files_to_trancode = scalar (keys %flac_file_size);
+if ($files_to_trancode) {
+	my $files_transcoded_cntr = 0;
+
+	msg_info("");
+	msg_info("The remaining $files_to_trancode files will be transcoded.");
+
+	# use parallel processing to launch multiple transcoding processes
+	msg_info("Using $Options{processes} transcoding processes.\n");
+	my $pm = new Parallel::ForkManager($Options{processes});
+
+	$pm->run_on_finish( sub {
+		# This callback code is run after each transcode and outputs messages generated
+		# by the children
+		#
+		# According to the Parallel::Forkmanager documentation, the structure of the
+		# input data @_ to this callback function is as follows:
+		# ($pid, $exit_code, $ident, $exit_signal, $core_dump, $data_structure_reference)
+		my $src = $_[2]; # (this is "$ident")
+		my $messages = $_[5]; # (this is "$data_structure_reference")
+
+		# Update counter of transcoded files
+		$files_transcoded_cntr++;
+
+		# display information about the transcoded/tagged file
+		foreach my $string ( @$messages ) {
+				msg_info($string);
+		}
+	});
+
+	# Transcoding loop starts here
+	foreach my $src_file (sort keys %flac_file_size) {
+		$pm->start($src_file) and next; # forks here
+
+		# transcode and generate messages with file info
+		my $messageref = path_and_conversion($src_file,1);
+
+		# terminate child process, send messages to callback sub
+		$pm->finish(0, $messageref );
+	}
+	$pm->wait_all_children;
+
+};
 
 # If allowed, copy non-flac files to destination dirs
 copy_non_flacs($source_root, $target_root) if ( $Options{copyfiles} );
@@ -465,8 +513,15 @@ sub get_md5_of_non_flac_file {
 };
 
 sub path_and_conversion{
-    my $source = shift;
+	# '$transcode_enabled = 0' means that we are only
+	# checking whether the file should be transcoded. If so, we
+	# return, and no further processing is taking place during this call.
+	# If the file is not to be transcoded, we stay and update tags if
+	# necessary.
+
+	my $source = shift;
 	my $target = $flac_mp3_files{$source};
+	my $transcode_enabled = shift;
 	my @messages = ();
 
     $Options{debug} && msg("source: '$source'");
@@ -484,6 +539,9 @@ sub path_and_conversion{
 
 	if ( ( !$$pflags{exists} || $$pflags{md5} || $Options{force} )
         && !$Options{tagsonly} ) {
+
+		# Return if this file would be transcoded
+		return 1 unless ($transcode_enabled);
 
 		# Step 4: Transcode the file based on the processing flags
 		$mess = transcode_file( $source, $target, $pflags );
@@ -797,7 +855,8 @@ sub transcode_file {
 	# Save message to be displayed on screen to the buffer
 	push @return_messages, $pretendString . "Transcoding    \"$source\"" ;
 
-	my $convert_command = "\"$flaccmd\" @flacargs \"$source\"" . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
+	my $convert_command =
+		"\"$flaccmd\" @flacargs \"$source\"" . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
 
 	$Options{debug} && msg("transcode: $convert_command");
 
@@ -820,7 +879,6 @@ sub transcode_file {
 		unlink $tmpfilename;
 
 		# should check exit status of this command
-
 		exit($exit_value);
 	}
 
