@@ -273,17 +273,19 @@ msg_info("");
 my $files_to_trancode = scalar (keys %flac_file_size);
 if ($files_to_trancode) {
 	my $files_transcoded_cntr = 0;
+	my $size_transcoded_so_far = 0;
 
 	msg_info("");
 	msg_info("The remaining $files_to_trancode files will be transcoded.");
-
+	msg_info("Total size of files to convert:  " .
+		sprintf("%.1f", $total_file_size_to_transcode/(1024**2)) . " MB");
 	# use parallel processing to launch multiple transcoding processes
 	msg_info("Using $Options{processes} transcoding processes.\n");
 	my $pm = new Parallel::ForkManager($Options{processes});
 
 	$pm->run_on_finish( sub {
 		# This callback code is run after each transcode and outputs messages generated
-		# by the children
+		# by the children, as well as overall progress info
 		#
 		# According to the Parallel::Forkmanager documentation, the structure of the
 		# input data @_ to this callback function is as follows:
@@ -298,6 +300,12 @@ if ($files_to_trancode) {
 		foreach my $string ( @$messages ) {
 				msg_info($string);
 		}
+		# display updated progress info
+		msg_info("Processed " .
+			($cntr_processed + $files_transcoded_cntr) . "/$file_count files.");
+		$size_transcoded_so_far += $flac_file_size{$src};
+
+		msg_info("");
 	});
 
 	# Transcoding loop starts here
