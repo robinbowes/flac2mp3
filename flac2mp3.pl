@@ -33,6 +33,7 @@ use Parallel::Forkmanager;
 use Scalar::Util qw/ looks_like_number /;
 use FreezeThaw qw/ cmpStr /;
 use Digest::MD5;
+use Time::HiRes qw/ time /;
 
 # ------- User-config options start here --------
 # Assume flac and lame programs are in the path.
@@ -214,12 +215,6 @@ $target_root = File::Spec->rel2abs($target_root);
 die "Source directory not found: $source_root\n"
     unless -d $source_root;
 
-# count all flac files in source_dir
-# Display a progress report after each file, e.g. Processed 367/4394 files
-# Possibly do some timing and add a Estimated Time Remaining
-# Will need to only count files that are going to be processed.
-# Hmmm could get complicated.
-
 msg_info( $pretendString . "Processing directory: $source_root" );
 
 # Now look for files in the source dir
@@ -272,6 +267,7 @@ msg_info("");
 
 my $files_to_trancode = scalar (keys %flac_file_size);
 if ($files_to_trancode) {
+	my $t0 = time; # starting time for the transcoding part
 	my $files_transcoded_cntr = 0;
 	my $size_transcoded_so_far = 0;
 
@@ -303,7 +299,19 @@ if ($files_to_trancode) {
 		# display updated progress info
 		msg_info("Processed " .
 			($cntr_processed + $files_transcoded_cntr) . "/$file_count files.");
+		my $elapsedtime = time - $t0;
 		$size_transcoded_so_far += $flac_file_size{$src};
+
+		# After 20 seconds, we have enough data to provide a qualified guess
+		# about the estimated finish time.
+		if ($elapsedtime > 20) {
+			my $remains_to_be_transcoded
+				= $total_file_size_to_transcode - $size_transcoded_so_far;
+			my $transcoding_rate = $size_transcoded_so_far / $elapsedtime;
+			my $estim_finish_time
+				= localtime(time + $remains_to_be_transcoded / $transcoding_rate);
+			msg_info("Estimated finish time is $estim_finish_time.");
+		};
 
 		msg_info("");
 	});
@@ -531,6 +539,8 @@ sub path_and_conversion{
 	my $target = $flac_mp3_files{$source};
 	my $transcode_enabled = shift;
 	my @messages = ();
+	my $t0;
+	my $elapsed_time = undef;
 
     $Options{debug} && msg("source: '$source'");
     $Options{debug} && msg("target: '$target'");
@@ -551,14 +561,20 @@ sub path_and_conversion{
 		# Return if this file would be transcoded
 		return 1 unless ($transcode_enabled);
 
+		$t0 = time;
 		# Step 4: Transcode the file based on the processing flags
 		$mess = transcode_file( $source, $target, $pflags );
 		push @messages, @$mess;
+		$elapsed_time = time - $t0;
 	};
 
     # Step 5: Write the tags based on the processing flags
 	$mess = write_tags( $target, $tags_to_update, $pflags );
     push @messages, @$mess;
+
+	if (defined $elapsed_time) {
+		push @messages, sprintf("Conversion took %5.1f seconds.", $elapsed_time);
+	};
 
 	return \@messages;
 };
