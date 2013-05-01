@@ -370,6 +370,10 @@ sub find_files {
     return \@found_files;
 }
 
+sub showhelp {
+    showusage();
+}
+
 sub showusage {
     print <<"EOT";
 Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--noskipfile] [--skipfilename=<filename>] [--lameargs='parameter-list'] <flacdir> <mp3dir>    --pretend        Don't actually do anything
