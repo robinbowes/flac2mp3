@@ -190,7 +190,7 @@ foreach my $cmd ( $flaccmd, $lamecmd ) {
         $cmdpath = which($cmd);
     }
     croak "$cmd not found" unless $cmdpath;
-    $Options{info} && msg("Using $cmd from: $cmdpath");
+    msg_info("Using $cmd from: $cmdpath");
 }
 
 # Turn off unsyncing, due to broken implementation in
@@ -210,8 +210,7 @@ die "Source directory not found: $source_root\n"
 # Will need to only count files that are going to be processed.
 # Hmmm could get complicated.
 
-$Options{info}
-    && msg( $pretendString . "Processing directory: $source_root" );
+msg_info( $pretendString . "Processing directory: $source_root" );
 
 # Now look for files in the source dir
 # (following symlinks)
@@ -223,7 +222,7 @@ my ( $target_root_volume, $target_root_path, $target_root_file ) = File::Spec->s
 my @target_root_elements = File::Spec->splitdir($target_root_path);
 
 # use parallel processing to launch multiple transcoding processes
-msg("Using $Options{processes} transcoding processes.\n");
+msg_info("Using $Options{processes} transcoding processes.\n");
 my $pm = new Parallel::ForkManager($Options{processes});
 foreach my $src_file (@flac_files) {
 	$pm->start and next; # Forks and returns the pid for the child
@@ -238,8 +237,7 @@ if ( $Options{copyfiles} ) {
 	= sort File::Find::Rule->file()->extras( { follow => 1 } )->not_name(qr/\.flac$/i)
   	->in($source_root);
     my $non_flac_file_count = scalar @non_flac_files;
-    $Options{info} &&
-	msg( "Found $non_flac_file_count non-flac file" .( $non_flac_file_count != 1 ? 's'  : '' . "\n" ) );
+    msg_info( "Found $non_flac_file_count non-flac file" .( $non_flac_file_count != 1 ? 's'  : '' . "\n" ) );
 
     # Copy non-flac files from source to dest directories
     my $t0 = time;
@@ -273,12 +271,14 @@ if ( $Options{copyfiles} ) {
 		};
 		$cntr_all ++;
 		# Show the progress every second
-		if ( ((time - $t0) >= 1) || ($cntr_all==$non_flac_file_count) ) {
+		if ( $Options{info} && 
+			( ((time - $t0) >= 1) || ($cntr_all==$non_flac_file_count) ) ) {
 			$t0 = time;
-			print("\r" . $pretendString . $cntr_copied . " non-flac files of " . $cntr_all ." were copied to dest directories.");
+			print("\r" . $pretendString . $cntr_copied . 
+				" non-flac files of " . $cntr_all ." were copied to dest directories.");
 		};
     };
-    msg("\n");	# double line feed
+    msg_info("\n");	# double line feed
 };
 
 
@@ -313,7 +313,6 @@ sub get_md5_of_non_flac_file {
     return $md5_code;
 };
 
-# use parallel processing to launch multiple transcoding processes
 sub path_and_conversion{
     my $source = shift;
 
@@ -370,10 +369,8 @@ sub find_files {
 
     $Options{debug} && msg( Dumper(@found_files) );
 
-    if ( $Options{info} ) {
-        my $file_count = scalar @found_files;
-        msg( "Found $file_count flac file" .                   ( $file_count > 1         ? 's'  : '' . "\n" ) );
-    }
+    my $file_count = scalar @found_files;
+    msg_info( "Found $file_count flac file" .                   ( $file_count > 1         ? 's'  : '' . "\n" ) );
 
     return \@found_files;
 }
@@ -404,9 +401,13 @@ EOT
     exit 0;
 }
 
-sub msg {
-    my $msg = shift;
-    print "$msg\n";
+sub msg { 
+	print "@_\n"
+}
+
+sub msg_info {
+	# display only if "--quiet" option is not in use
+	$Options{info} && msg(@_)
 }
 
 sub convert_file {
@@ -630,7 +631,6 @@ sub examine_destfile_tags {
                         msg("srcframe value: '$srcframe'");
                         msg("destframe value: '$dest_text'");
                     }
-
                 }
             }
         }
@@ -694,8 +694,7 @@ sub transcode_file {
             );
             $tmpfilename = $tmpfh->filename;
         }
-		$Options{info}
-            && msg( $pretendString . "Transcoding    \"$source\"" );
+		msg_info( $pretendString . "Transcoding    \"$source\"" );
 
         my $convert_command = "\"$flaccmd\" @flacargs \"$source\"" . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
 
@@ -757,14 +756,9 @@ sub write_tags {
     my %pflags           = %$pflags_ref;    # this is only to minimize changes
 
     # Write the tags
-    if ($pflags{exists}
-        && (   $pflags{tags}
-            || $Options{force} )
-        )
-    {
+    if ( $pflags{exists} && ( $pflags{tags} || $Options{force} ) ) {
 
-        $Options{info}
-            && msg( $pretendString . "Writing tags to \"$destfilename\"" );
+        msg_info( $pretendString . "Writing tags to \"$destfilename\"" );
 
         if ( !$Options{pretend} ) {
             my $mp3 = MP3::Tag->new($destfilename);
@@ -852,8 +846,7 @@ sub fixUpTrackNumber {
             $trackNum = sprintf( "%02u", $trackNum );
         }
         else {
-            $Options{info}
-                && msg('TRACKNUMBER not numeric');
+			msg_info('TRACKNUMBER not numeric');
         }
     }
     return $trackNum;
