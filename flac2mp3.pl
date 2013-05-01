@@ -257,11 +257,11 @@ if ( $Options{copyfiles} ) {
 			};
 		}
 		else {
-		# Create the destination directory if it
-		# doesn't already exist
-		mkpath($dst_dir) 
-			or die "Can't create directory $dst_dir\n"
-			unless -d $dst_dir;
+			# Create the destination directory if it
+			# doesn't already exist
+			unless ( $Options{pretend} || -d $dst_dir ) {
+				mkpath($dst_dir) or die "Can't create directory $dst_dir\n";
+			}
 		};
 		if ( $do_copy ) {
 			unless ( $Options{pretend} ) { 
