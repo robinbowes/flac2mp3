@@ -377,6 +377,10 @@ sub path_and_conversion{
     convert_file( $source, $target );
 };
 
+sub showhelp {
+    showusage();
+}
+
 sub showusage {
     print <<"EOT";
 Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--noskipfile] [--skipfilename=<filename>] [--lameargs='parameter-list'] <flacdir> <mp3dir>
