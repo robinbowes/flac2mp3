@@ -85,9 +85,8 @@ my @flacargs = qw (
 
 # hash mapping FLAC tag names to MP3 frames
 my %MP3frames = (
-    'ALBUM' => 'TALB',
-
-    #    'ALBUMARTIST'             => 'TPE2',
+    'ALBUM'                   => 'TALB',
+    'ALBUMARTIST'             => 'TPE2',
     'ARTIST'                  => 'TPE1',
     'BAND'                    => 'TPE2',
     'BPM'                     => 'TBPM',
