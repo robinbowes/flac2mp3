@@ -344,31 +344,27 @@ sub find_files {
 
     my @found_files;
 
-    my $found_list = File::Find::Rule->extras( { follow => 1 } )->name($regex);
-    if ( $Options{skipfile} ) {
-        my $skip_list = File::Find::Rule->directory->exec(
-            sub {
-                my ( $fname, $fpath, $frpath ) = @_;
-                if ( -f File::Spec->catdir( $frpath, $Options{skipfilename} ) ) {
-                    return 1;
+    my $rule = File::Find::Rule->extras({follow => 1});
+    if ($Options{skipfile}) {
+        @found_files = sort $rule->any(
+            $rule->new->directory->exec(
+                sub {
+                    my ($fname, $fpath, $frpath) = @_;
+                    -f File::Spec->catdir($frpath, $Options{skipfilename});
                 }
-                else {
-                    return 0;
-                }
-            }
-        )->prune->discard;
-        @found_files = sort File::Find::Rule->or( $skip_list, $found_list )->in($path);
+              )->prune->discard,
+            $rule->new->file->name($regex)
+        )->in($path);
     }
     else {
-
-        @found_files = sort $found_list ->in($path);
+        @found_files = sort $rule->in($path);
     }
 
-    $Options{debug} && msg( Dumper(@found_files) );
+    $Options{debug} && msg(Dumper(@found_files));
 
-    if ( $Options{info} ) {
+    if ($Options{info}) {
         my $file_count = scalar @found_files;
-        msg( "Found $file_count flac file" .                   ( $file_count > 1         ? 's'  : '' . "\n" ) );
+        msg("Found $file_count flac file" . ($file_count > 1 ? 's' : '' . "\n"));
     }
 
     return \@found_files;
