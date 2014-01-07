@@ -222,59 +222,59 @@ my @target_root_elements = File::Spec->splitdir($target_root_path);
 msg("Using $Options{processes} transcoding processes.\n");
 my $pm = new Parallel::ForkManager($Options{processes});
 foreach my $src_file (@flac_files) {
-	$pm->start and next; # Forks and returns the pid for the child
-	path_and_conversion($src_file);	
-	$pm->finish; # Terminates the child process
+    $pm->start and next; # Forks and returns the pid for the child
+    path_and_conversion($src_file);
+    $pm->finish; # Terminates the child process
 }
 $pm->wait_all_children;
 
 
 if ( $Options{copyfiles} ) {
-    my @non_flac_files 
-	= sort File::Find::Rule->file()->extras( { follow => 1 } )->not_name(qr/\.flac$/i)
-  	->in($source_root);
+    my @non_flac_files
+        = sort File::Find::Rule->file()->extras( { follow => 1 } )->not_name(qr/\.flac$/i)
+        ->in($source_root);
     my $non_flac_file_count = scalar @non_flac_files;
     $Options{info} &&
-	msg( "Found $non_flac_file_count non-flac file" .( $non_flac_file_count != 1 ? 's'  : '' . "\n" ) );
+    msg( "Found $non_flac_file_count non-flac file" .( $non_flac_file_count != 1 ? 's'  : '' . "\n" ) );
 
     # Copy non-flac files from source to dest directories
     my $t0 = time;
     my $cntr_all = 0;
     my $cntr_copied = 0;
     foreach my $src_file (@non_flac_files) {
-		my ($dst_dir, $dst_file) = get_dest_file_path_non_flac($src_file);
-	   	# Flag which determines if file should be copied:
-		my $do_copy = 1;
-		# Don't copy file if it already exists in dest directory and 
-		# has identical md5 to the source file   	
-		if (-e $dst_file) {
-			my $src_md5 = get_md5_of_non_flac_file($src_file);
-			my $dst_md5 = get_md5_of_non_flac_file($dst_file);
-			if ($src_md5 eq $dst_md5) {
-				$do_copy = 0; # Don't copy if equal md5
-			};
-		}
-		else {
-		# Create the destination directory if it
-		# doesn't already exist
-		mkpath($dst_dir) 
-			or die "Can't create directory $dst_dir\n"
-			unless -d $dst_dir;
-		};
-		if ( $do_copy ) {
-			unless ( $Options{pretend} ) { 
-				copy($src_file,$dst_file) || die("Can't copy this FILE: $src_file !");
-			}
-			$cntr_copied ++;
-		};
-		$cntr_all ++;
-		# Show the progress every second
-		if ( ((time - $t0) >= 1) || ($cntr_all==$non_flac_file_count) ) {
-			$t0 = time;
-			print("\r" . $pretendString . $cntr_copied . " non-flac files of " . $cntr_all ." were copied to dest directories.");
-		};
+        my ($dst_dir, $dst_file) = get_dest_file_path_non_flac($src_file);
+        # Flag which determines if file should be copied:
+        my $do_copy = 1;
+        # Don't copy file if it already exists in dest directory and
+        # has identical md5 to the source file
+        if (-e $dst_file) {
+            my $src_md5 = get_md5_of_non_flac_file($src_file);
+            my $dst_md5 = get_md5_of_non_flac_file($dst_file);
+            if ($src_md5 eq $dst_md5) {
+                $do_copy = 0; # Don't copy if equal md5
+            };
+        }
+        else {
+        # Create the destination directory if it
+        # doesn't already exist
+        mkpath($dst_dir)
+            or die "Can't create directory $dst_dir\n"
+            unless -d $dst_dir;
+        };
+        if ( $do_copy ) {
+            unless ( $Options{pretend} ) {
+                copy($src_file,$dst_file) || die("Can't copy this FILE: $src_file !");
+            }
+            $cntr_copied ++;
+        };
+        $cntr_all ++;
+        # Show the progress every second
+        if ( ((time - $t0) >= 1) || ($cntr_all==$non_flac_file_count) ) {
+            $t0 = time;
+            print("\r" . $pretendString . $cntr_copied . " non-flac files of " . $cntr_all ." were copied to dest directories.");
+        };
     };
-    msg("\n");	# double line feed
+    msg("\n");  # double line feed
 };
 
 
@@ -295,7 +295,7 @@ sub get_dest_file_path_non_flac {
 
     # Now join it all together to get the complete path of the dest_file
     $target = File::Spec->catpath( $target_root_volume, $target_path, $source_file );
-	my $target_dir = File::Spec->catpath( $target_root_volume, $target_path, '' );
+    my $target_dir = File::Spec->catpath( $target_root_volume, $target_path, '' );
 
     return $target_dir,$target;
 };
@@ -324,8 +324,8 @@ sub path_and_conversion{
 
     # Add the dst_dirs to the dst root and join back together
     $target_path = File::Spec->catdir( @target_root_elements, @target_path_elements );
-    # Add volume for OSes that require it (MSWin etc.) 
-	$target_path = File::Spec->catpath( $target_root_volume, $target_path, '' );
+    # Add volume for OSes that require it (MSWin etc.)
+    $target_path = File::Spec->catpath( $target_root_volume, $target_path, '' );
 
     # Get the basename of the dst file
     my ( $target_base, $target_dir, $source_ext ) = fileparse( $source_file, qr{\Q.flac\E$}xmsi );
@@ -381,7 +381,7 @@ Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--
     --debug          Enable debugging output. For developers only!
     --tagsonly       Don't do any transcoding - just update tags
     --force          Force transcoding and tag update even if not required
-    --tagdiff	     Print source/dest tag values if different
+    --tagdiff        Print source/dest tag values if different
     --lameargs='s'   specify parameter(string) to be passed to the LAME Encoder
                      Default: "--noreplaygain --vbr-new -V 2 -h --nohist --quiet"
     --noskipfile     Ignore any skip files
@@ -440,13 +440,13 @@ sub read_flac_tags {
 
     # get MD5 checksdum from flac file and add to srcframes hash
     $source_tags->{'MD5'} = $source_header->info('MD5CHECKSUM');
-	
-	# if present, add album art to srcframes hash:
-	# get picture data from flac file and
-	# proceed if a picture metadata block is found (i.e. a valid ref was returned)
-	if ( ref(my $allsrcpictures = $source_header->picture('all')) ) {
-		$source_tags->{'PIC'} = $allsrcpictures;
-	};
+
+    # if present, add album art to srcframes hash:
+    # get picture data from flac file and
+    # proceed if a picture metadata block is found (i.e. a valid ref was returned)
+    if ( ref(my $allsrcpictures = $source_header->picture('all')) ) {
+        $source_tags->{'PIC'} = $allsrcpictures;
+    };
 
     return $source_tags;
 }
@@ -469,12 +469,12 @@ sub preprocess_flac_tags {
                 $tags_to_update{$frame} = fixUpFrame( $source_tags->{$frame} );
             }
             else {
-	            if ( $frame eq 'PIC' ) {
-		            foreach my $pic ( @{$source_tags->{'PIC'}} ) {
-						$$pic{'description'} = fixUpFrame($$pic{'description'}); # convert from UTF-8 to latin1
-					};
-                	$tags_to_update{$frame} = $source_tags->{$frame};
-            	}
+                if ( $frame eq 'PIC' ) {
+                    foreach my $pic ( @{$source_tags->{'PIC'}} ) {
+                        $$pic{'description'} = fixUpFrame($$pic{'description'}); # convert from UTF-8 to latin1
+                    };
+                    $tags_to_update{$frame} = $source_tags->{$frame};
+                }
                 elsif ( $src_tag_type eq 'ARRAY' ) {
 
                     # Fixup each value individually
@@ -566,10 +566,10 @@ sub examine_destfile_tags {
 
                 # Compare album art
                 if ( $frame eq 'PIC' ) {
-					$pflags{tags} 
-						= compare_src_dest_picture_data($frames_to_update{'PIC'},\@info,$destfilename);
-					next; # don't do any more processing on the picture frame
-				};
+                    $pflags{tags}
+                        = compare_src_dest_picture_data($frames_to_update{'PIC'},\@info,$destfilename);
+                    next; # don't do any more processing on the picture frame
+                };
 
                 my $dest_text = '';
 
@@ -675,12 +675,12 @@ sub transcode_file {
 
             # Create the destination directory if it
             # doesn't already exist
-          	unless (-d $dst_dir) {
-	      		# If necessary, allow a second check. Don't die just because the 
-	      		# dir was created by another child (race condition):
-				mkpath($dst_dir) or (-d $dst_dir)
-					or die "Can't create directory $dst_dir\n"; 
-        	};
+            unless (-d $dst_dir) {
+                # If necessary, allow a second check. Don't die just because the
+                # dir was created by another child (race condition):
+                mkpath($dst_dir) or (-d $dst_dir)
+                    or die "Can't create directory $dst_dir\n";
+            };
             $tmpfh = new File::Temp(
                 UNLINK => 1,
                 DIR    => $dst_dir,
@@ -688,7 +688,7 @@ sub transcode_file {
             );
             $tmpfilename = $tmpfh->filename;
         }
-		$Options{info}
+        $Options{info}
             && msg( $pretendString . "Transcoding    \"$source\"" );
 
         my $convert_command = "\"$flaccmd\" @flacargs \"$source\"" . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
@@ -781,10 +781,10 @@ sub write_tags {
                 $Options{debug} && msg("method is $method");
 
                 if ( $method eq "APIC" ) {
-					# Add the source picture data to APIC frames in the dest file			     
-					$mp3 = picsToAPICframes($mp3, $frames_to_update{$frame});
-					next; # avoid more processing of this complex tag, jump to next
-         		};
+                    # Add the source picture data to APIC frames in the dest file
+                    $mp3 = picsToAPICframes($mp3, $frames_to_update{$frame});
+                    next; # avoid more processing of this complex tag, jump to next
+                };
 
                 my $framestring = $frames_to_update{$frame};
 
@@ -853,45 +853,45 @@ sub fixUpTrackNumber {
     return $trackNum;
 }
 
-sub compare_src_dest_picture_data {	
-	my ($allsrcpictures, $alldestpictures, $destfilename) = @_;
+sub compare_src_dest_picture_data {
+    my ($allsrcpictures, $alldestpictures, $destfilename) = @_;
 
-	# Create temporary MP3 id3v2 tag      
-	my $mp3_tmp_pic = MP3::Tag->new($destfilename);
-	$mp3_tmp_pic->new_tag("ID3v2");
-		
-	# Write APIC frames to temporary tag 
-	$mp3_tmp_pic = picsToAPICframes($mp3_tmp_pic, $allsrcpictures);
-	
-	# Read back the APIC frames in a format which allows direct 
-	# comparison with destination file data
-	( my $tagname, my @alltmppictures ) =
-		$mp3_tmp_pic->{"ID3v2"}->get_frames( "APIC", 'intact' );
+    # Create temporary MP3 id3v2 tag
+    my $mp3_tmp_pic = MP3::Tag->new($destfilename);
+    $mp3_tmp_pic->new_tag("ID3v2");
 
-	# Set 'tags don't match' flag to 1 if embedded picture data differs 
-	# between source and destination files. Use cmpStr from FreezeThaw for this:
-	my $pics_dont_match = cmpStr([@alltmppictures],[@$alldestpictures]);
-	($Options{debug} || $Options{tagdiff}) && ($pics_dont_match) 
-		&&	msg("Source and destination picture data NOT equal, " 
-		. "will rewrite destination APIC frames.");		
+    # Write APIC frames to temporary tag
+    $mp3_tmp_pic = picsToAPICframes($mp3_tmp_pic, $allsrcpictures);
 
-	return $pics_dont_match
+    # Read back the APIC frames in a format which allows direct
+    # comparison with destination file data
+    ( my $tagname, my @alltmppictures ) =
+        $mp3_tmp_pic->{"ID3v2"}->get_frames( "APIC", 'intact' );
+
+    # Set 'tags don't match' flag to 1 if embedded picture data differs
+    # between source and destination files. Use cmpStr from FreezeThaw for this:
+    my $pics_dont_match = cmpStr([@alltmppictures],[@$alldestpictures]);
+    ($Options{debug} || $Options{tagdiff}) && ($pics_dont_match)
+        &&  msg("Source and destination picture data NOT equal, "
+        . "will rewrite destination APIC frames.");
+
+    return $pics_dont_match
 }
 
 sub picsToAPICframes {
-	# Write pictures to supplied mp3 tag
-	my ($mp3_object, $allpics) = @_;
-	if ($allpics)  {
-		foreach my $thisPic ( @$allpics ) {
-			my $imdata 	= $thisPic->{imageData};
-			my $pictype = $thisPic->{pictureType};
-			my @APICheader 
-				= (0, $$thisPic{mimeType}, chr($pictype), $$thisPic{description});
-			$mp3_object
-				->{"ID3v2"}->add_frame("APIC", @APICheader, $imdata);
-		};
-	};
-	return $mp3_object;
+    # Write pictures to supplied mp3 tag
+    my ($mp3_object, $allpics) = @_;
+    if ($allpics)  {
+        foreach my $thisPic ( @$allpics ) {
+            my $imdata  = $thisPic->{imageData};
+            my $pictype = $thisPic->{pictureType};
+            my @APICheader
+                = (0, $$thisPic{mimeType}, chr($pictype), $$thisPic{description});
+            $mp3_object
+                ->{"ID3v2"}->add_frame("APIC", @APICheader, $imdata);
+        };
+    };
+    return $mp3_object;
 }
 
 # vim:set softtabstop=4:
