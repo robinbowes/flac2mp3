@@ -161,7 +161,7 @@ my %Options = (
 GetOptions(
     \%Options,     "quiet!",         "tagdiff", "debug!",  "tagsonly!", "force!",
     "usage",       "help",           "version", "pretend", "skipfile!", "skipfilename=s",
-    "processes=i", "tagseparator=s", "lameargs=s", "copyfiles"
+    "processes=i", "tagseparator=s", "lameargs=s", "copyfiles", "delete"
 );
 
 # info flag is the inverse of --quiet
@@ -229,6 +229,10 @@ my @flac_files = sort keys { %flac_mp3_files };
 my $file_count = scalar @flac_files;
 msg_info( "Found $file_count flac file" . ( $file_count > 1 ? 's'  : '' . "\n" ) );
 
+# If allowed, delete surplus files and folders from target directory, keeping 
+# it in perfect sync with (i.e. a mirror of) the source directory.  
+delete_excess_files_from_dest($source_root, $target_root) if ( $Options{delete} ) ;
+
 
 # use parallel processing to launch multiple transcoding processes
 msg_info("Using $Options{processes} transcoding processes.\n");
@@ -241,64 +245,72 @@ foreach my $src_file (@flac_files) {
 $pm->wait_all_children;
 
 
-if ( $Options{copyfiles} ) {
-    my %non_flac_files = get_all_paths('not_name', '.flac', $source_root, $target_root, '');
-    my @non_flac_files = keys %non_flac_files; 
-    my $non_flac_file_count = scalar @non_flac_files;
-    msg_info( "Found $non_flac_file_count non-flac file" .( $non_flac_file_count != 1 ? 's'  : '' . "\n" ) );
+# If allowed, copy non-flac files to destination dirs
+copy_non_flacs($source_root, $target_root) if ( $Options{copyfiles} );
 
-    # Copy non-flac files from source to dest directories
-    my $t0 = time;
-    my $cntr_all = 0;
-    my $cntr_copied = 0;
-    foreach my $src_file (@non_flac_files) {
-		my $dst_file = $non_flac_files{$src_file};
-	   	# Flag which determines if file should be copied:
-		my $do_copy = 1;
-		# Don't copy file if it already exists in dest directory and 
-		# has identical md5 to the source file   	
-		if (-e $dst_file) {
-			my $src_md5 = get_md5_of_non_flac_file($src_file);
-			my $dst_md5 = get_md5_of_non_flac_file($dst_file);
-			if ($src_md5 eq $dst_md5) {
-				$do_copy = 0; # Don't copy if equal md5
-			};
-		}
-		else {
-			# Create the destination directory if it
-			# doesn't already exist
-			(undef, my $dst_dir) = 
-				File::Basename::fileparse($dst_file); # retrieve directory name
-			unless ( $Options{pretend} || -d $dst_dir ) {
-				mkpath($dst_dir) or die "Can't create directory $dst_dir\n";
-			}
-		};
-		if ( $do_copy ) {
-			unless ( $Options{pretend} ) { 
-				copy($src_file,$dst_file) || die("Can't copy this FILE: $src_file !");
-			}
-			$cntr_copied ++;
-		};
-		$cntr_all ++;
-		# Show the progress every second
-		if ( $Options{info} && 
-			( ((time - $t0) >= 1) || ($cntr_all==$non_flac_file_count) ) ) {
-			$t0 = time;
-			print("\r" . $pretendString . $cntr_copied . 
-				" non-flac files of " . $cntr_all ." were copied to dest directories.");
-		};
-    };
-    msg_info("\n");	# double line feed
+1;
+# ------------ Main program ends here --------------------------------------
+
+
+# ------------ Subroutines start here --------------------------------------
+
+sub delete_excess_files_from_dest {
+	my ($source_root, $target_root) = @_;
+	
+	# Generate (source => target) hashes for the files found using 
+	# each of the following combinations of root dirs and file suffixes 
+	my %existing_target_mp3_files = get_all_paths('name', '.mp3', $target_root, $target_root, '.mp3');
+	my %existing_source_mp3_files = get_all_paths('name', '.mp3', $source_root, $target_root, '.mp3');
+	my %non_flac_files = get_all_paths('not_name', '.flac', $source_root, $target_root, '');
+	my %existing_target_non_mp3_files = get_all_paths('not_name', '.mp3', $target_root, $target_root, '');
+	
+	# 1. calculate what files to expect in directory after finished transcoding and copying
+	my @expected_transcoded_mp3s = keys { reverse %flac_mp3_files }; # expected mp3 files in target from transcoded flac files
+	my @expected_copied_files = keys { reverse %non_flac_files }; # expected files in target copied from non-flac files in source
+	my @expected_files = uniq(@expected_transcoded_mp3s, @expected_copied_files); # Join the arrays and remove any duplicates 
+	
+	# 2. check what files are actually present
+	my @actual_mp3s = keys { reverse %existing_target_mp3_files }; # actual existing mp3 files in target
+	my @actual_non_mp3s = keys { reverse %existing_target_non_mp3_files }; # existing non-mp3 files in target
+	my @actual_files = (@actual_mp3s, @actual_non_mp3s); # Join the arrays (being mutually exclusive, there is no overlap) 
+	
+	# 3. determine which files to remove from target directory tree
+	my @files_to_remove = single_difference(\@expected_files, \@actual_files);
+	
+	# 4. determine which subdirectories to remove from target directory tree
+	my @expected_subdirs_in_target = get_all_dirs($source_root,$target_root);
+	my @actual_subdirs_in_target = get_all_dirs($target_root,$target_root);
+	my @dirs_to_remove = single_difference(\@expected_subdirs_in_target, \@actual_subdirs_in_target);
+	
+	# 5. carry out the deletions 
+	foreach my $file (@files_to_remove) {
+		$Options{pretend} || unlink $file or die "Unable to delete $file: $!";
+		msg_info($pretendString . "Deleted \"$file\"");
+	}
+	foreach my $dir (reverse sort @dirs_to_remove) {
+		$Options{pretend} || File::Path->remove_tree($dir) or die "Unable to delete directory $dir: $!";
+		msg_info($pretendString . "Deleted directory \"$dir\"");
+	}
+}
+
+# Return all unique elements of input array @_
+sub uniq { 
+	return sort keys %{{ map { $_ => 1 } @_ }} 
 };
 
-sub get_md5_of_non_flac_file {
-    my $file = shift;
-    open(FILE, $file) or die "Can't open '$file': $!";
-    binmode(FILE);
-    my $md5_code = Digest::MD5->new->addfile(*FILE)->hexdigest;
-    close FILE;
-    return $md5_code;
-};
+# Acccept two arrays @A and @B as argument, return elements in @B that aren't in @A.
+sub single_difference { 
+	my ($A, $B) = @_;
+
+	# build lookup table
+	my %seen = ();
+	my @bonly = ();
+	@seen{@$A} = (1) x @$A;
+	foreach my $item (@$B) {
+		push(@bonly, $item) unless $seen{$item};
+	}
+	return sort @bonly;
+}
 
 sub get_all_dirs {
 	my ($root, $new_root) = @_;
@@ -369,6 +381,68 @@ sub find_files_or_dirs {
 return \@found;
 }
 
+sub copy_non_flacs {
+	my ($source_root, $target_root) = @_;
+	
+	my %non_flac_files = get_all_paths('not_name', '.flac', $source_root, $target_root, '');
+    my @non_flac_files = keys %non_flac_files; 
+    my $non_flac_file_count = scalar @non_flac_files;
+    msg_info( "Found $non_flac_file_count non-flac file" . 
+		( $non_flac_file_count != 1 ? 's'  : '' . "\n" ) );
+
+    # Copy non-flac files from source to dest directories
+    my $t0 = time;
+    my $cntr_all = 0;
+    my $cntr_copied = 0;
+    foreach my $src_file (@non_flac_files) {
+		my $dst_file = $non_flac_files{$src_file};
+		# Flag which determines if file should be copied:
+		my $do_copy = 1;
+		# Don't copy file if it already exists in dest directory and 
+		# has identical md5 to the source file   	
+		if (-e $dst_file) {
+			my $src_md5 = get_md5_of_non_flac_file($src_file);
+			my $dst_md5 = get_md5_of_non_flac_file($dst_file);
+			if ($src_md5 eq $dst_md5) {
+				$do_copy = 0; # Don't copy if equal md5
+			};
+		}
+		else {
+			# Create the destination directory if it
+			# doesn't already exist
+			(undef, my $dst_dir) = 
+				File::Basename::fileparse($dst_file); # retrieve directory name
+			unless ( $Options{pretend} || -d $dst_dir ) {
+				mkpath($dst_dir) or die "Can't create directory $dst_dir\n";
+			}
+		};
+		if ( $do_copy ) {
+			unless ( $Options{pretend} ) { 
+				copy($src_file,$dst_file) || die("Can't copy this FILE: $src_file !");
+			}
+			$cntr_copied ++;
+		};
+		$cntr_all ++;
+		# Show the progress every second
+		if ( $Options{info} && 
+			( ((time - $t0) >= 1) || ($cntr_all==$non_flac_file_count) ) ) {
+			$t0 = time;
+			print("\r" . $pretendString . $cntr_copied . 
+				" non-flac files of " . $cntr_all ." were copied to dest directories.");
+		};
+    };
+    msg_info("\n");	# double line feed
+};
+
+sub get_md5_of_non_flac_file {
+    my $file = shift;
+    open(FILE, $file) or die "Can't open '$file': $!";
+    binmode(FILE);
+    my $md5_code = Digest::MD5->new->addfile(*FILE)->hexdigest;
+    close FILE;
+    return $md5_code;
+};
+
 sub path_and_conversion{
     my $source = shift;
 	my $target = $flac_mp3_files{$source};
@@ -402,6 +476,7 @@ Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--
                      same tag.
                      Default: "/"
     --copyfiles      Copy non-flac files to dest directories
+    --delete         Delete surplus files and directories in destination, keeping in sync with source dir
 EOT
     exit 0;
 }
