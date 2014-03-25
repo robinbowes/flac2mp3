@@ -29,7 +29,7 @@ use File::Temp qw/ cleanup /;
 use File::Which;
 use Getopt::Long;
 use MP3::Tag;
-use Parallel::Forkmanager;
+use Parallel::ForkManager;
 use Scalar::Util qw/ looks_like_number /;
 use FreezeThaw qw/ cmpStr /;
 use Digest::MD5;
