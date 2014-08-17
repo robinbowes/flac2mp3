@@ -33,6 +33,10 @@ use Parallel::ForkManager;
 use Scalar::Util qw/ looks_like_number /;
 use FreezeThaw qw/ cmpStr /;
 use Digest::MD5;
+use Image::Info qw/ image_info /;
+
+# quote values in dumped strings (debug) to avoid problems with pictures in tags
+$Data::Dumper::Useqq = 1;
 
 # ------- User-config options start here --------
 # Assume flac and lame programs are in the path.
@@ -67,6 +71,15 @@ my $NUM_PROCESSES_DEFAULT = 1;
 
 # use Id3 v2.3.0 tag separator by default
 my $TAG_SEPARATOR_DEFAULT = '/';
+
+my @cover_art_files = qw (
+  album.jpg
+  albumart.jpg
+  cover.jpg
+  folder.jpg
+  .folder.jpg
+  front.jpg
+);
 
 my @flacargs = qw (
     --decode
@@ -152,7 +165,7 @@ my %Options = (
 GetOptions(
     \%Options,     "quiet!",         "tagdiff", "debug!",  "tagsonly!", "force!",
     "usage",       "help",           "version", "pretend", "skipfile!", "skipfilename=s",
-    "processes=i", "tagseparator=s", "lameargs=s", "copyfiles"
+    "processes=i", "tagseparator=s", "lameargs=s", "copyfiles", "coverartfiles=s"
 );
 
 # info flag is the inverse of --quiet
@@ -173,6 +186,9 @@ showusage()
 
 @lameargs = $Options{lameargs}
     if $Options{lameargs};
+
+@cover_art_files = split( ",", $Options{coverartfiles} )
+  if $Options{coverartfiles};
 
 my $pretendString = '';
 $pretendString = '** Pretending ** '
@@ -376,7 +392,8 @@ sub find_files {
 
 sub showusage {
     print <<"EOT";
-Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--noskipfile] [--skipfilename=<filename>] [--lameargs='parameter-list'] <flacdir> <mp3dir>    --pretend        Don't actually do anything
+Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--noskipfile] [--skipfilename=<filename>] [--lameargs='parameter-list'] [--coverartfiles='filelist'] <flacdir> <mp3dir>    
+    --pretend        Don't actually do anything
     --quiet          Disable informational output to stdout
     --debug          Enable debugging output. For developers only!
     --tagsonly       Don't do any transcoding - just update tags
@@ -394,6 +411,7 @@ Usage: $0 [--pretend] [--quiet] [--debug] [--tagsonly] [--force] [--tagdiff] [--
                      same tag.
                      Default: "/"
     --copyfiles      Copy non-flac files to dest directories
+    --coverartfiles=s Look for cover art in specified files alongside FLACs (default: @cover_art_files")
 EOT
     exit 0;
 }
@@ -446,10 +464,48 @@ sub read_flac_tags {
 	# proceed if a picture metadata block is found (i.e. a valid ref was returned)
 	if ( ref(my $allsrcpictures = $source_header->picture('all')) ) {
 		$source_tags->{'PIC'} = $allsrcpictures;
+	} else { # look for a picture in a standalone file
+		my $pic_from_file = find_pic_in_file($source);
+		$source_tags->{'PIC'} = $pic_from_file if defined($pic_from_file);
 	};
 
     return $source_tags;
 }
+
+
+sub find_pic_in_file {
+	my $source = shift;
+	my $pic_info = {};
+
+	my ($src_vol, $src_path, $source_file ) = File::Spec->splitpath($source);
+	foreach my $fn (@cover_art_files){
+		my $art_path = File::Spec->catpath($src_vol, $src_path, $fn);
+
+		if (open(my $f, '<',$art_path)) {
+			binmode($f);
+			local $/;
+			$pic_info->{imageData} = <$f>;
+			close($f);
+
+			my $info = image_info(\$pic_info->{imageData});
+			if (my $error = $info->{error}) {
+			    carp "problem ($error) getting info for image ($art_path)";
+			};
+
+			$pic_info->{description} = 'cover';
+			$pic_info->{pictureType} = 3; # magic - "cover"
+			$pic_info->{width} = $info->{width} // 0;
+			$pic_info->{height} = $info->{height} // 0;
+			$pic_info->{mimeType} = $info->{file_media_type} // 'image/jpeg';
+			$pic_info->{depth} = $info->{BitsPerSample}->[0] // 0;
+
+			last;
+		};
+	};
+
+	return ((scalar (keys %$pic_info)) > 0) ? [$pic_info] : undef;
+};
+
 
 sub preprocess_flac_tags {
     my $source_tags   = shift;
