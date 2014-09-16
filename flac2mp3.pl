@@ -691,7 +691,15 @@ sub transcode_file {
 		$Options{info}
             && msg( $pretendString . "Transcoding    \"$source\"" );
 
-        my $convert_command = "\"$flaccmd\" @flacargs \"$source\"" . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
+
+        my $escSource = $source;
+        my $escTmpfilename= $tmpfilename;
+        foreach ($escSource, $escTmpfilename)
+        {
+            s/"/\\"/g;
+            s/\$/\Q\$/g;
+        }
+        my $convert_command = qq("$flaccmd" @flacargs \"$escSource\" | "$lamecmd" @lameargs - \"$escTmpfilename\");
 
         $Options{debug} && msg("transcode: $convert_command");
 
