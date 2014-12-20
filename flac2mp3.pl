@@ -698,6 +698,7 @@ sub transcode_file {
         # Convert the file (unless we're pretending}
         my $exit_value;
         if ( !$Options{pretend} ) {
+            unlink $tmpfilename;
             $exit_value = system($convert_command);
         }
         else {
