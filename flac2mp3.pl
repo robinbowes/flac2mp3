@@ -15,7 +15,7 @@ use strict;
 use Carp;
 
 use FindBin;
-use lib "$FindBin::Bin/lib";
+use lib "$FindBin::RealBin/lib";
 
 use Audio::FLAC::Header;
 use Data::Dumper;
