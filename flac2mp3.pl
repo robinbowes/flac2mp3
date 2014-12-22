@@ -29,7 +29,7 @@ use File::Temp qw/ cleanup /;
 use File::Which;
 use Getopt::Long;
 use MP3::Tag;
-use Parallel::Forkmanager;
+use Parallel::ForkManager;
 use Scalar::Util qw/ looks_like_number /;
 use FreezeThaw qw/ cmpStr /;
 use Digest::MD5;
@@ -164,12 +164,12 @@ $| = 1;
 my ( $source_root, $target_root ) = @ARGV;
 
 showversion() if ( $Options{version} );
-showhelp()    if ( $Options{help} );
 showusage()
     if ( !defined $source_root
     or !defined $target_root
     or $Options{processes} < 1
-    or $Options{usage} );
+    or $Options{usage}
+    or $Options{help} );
 
 @lameargs = $Options{lameargs}
     if $Options{lameargs};

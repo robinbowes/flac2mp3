@@ -19,37 +19,37 @@ flac2mp3 can do this.
 
 It can take a directory structure like this:
 
-lossless
-  |
-  +--Coldplay
-  |    |
-  |    +--Parachutes
-  |         |
-  |         +-- 01 - Don't Panic.flac
-  |             02 - Shiver.flac
-  +--The Chameleons
-       |
-       +Script of the Bridge
-          |
-          +-- 01 - Don't Fall.flac
-              02 - Here Today.flac
+    lossless
+      |
+      +--Coldplay
+      |    |
+      |    +--Parachutes
+      |         |
+      |         +-- 01 - Don't Panic.flac
+      |             02 - Shiver.flac
+      +--The Chameleons
+           |
+           +Script of the Bridge
+              |
+              +-- 01 - Don't Fall.flac
+                  02 - Here Today.flac
 
 And produce a directory structure like this:
 
-lossy
-  |
-  +--Coldplay
-  |    |
-  |    +--Parachutes
-  |         |
-  |         +-- 01 - Don't Panic.mp3
-  |             02 - Shiver.mp3
-  +--The Chameleons
-       |
-       +Script of the Bridge
-          |
-          +-- 01 - Don't Fall.mp3
-              02 - Here Today.mp3
+    lossy
+      |
+      +--Coldplay
+      |    |
+      |    +--Parachutes
+      |         |
+      |         +-- 01 - Don't Panic.mp3
+      |             02 - Shiver.mp3
+      +--The Chameleons
+           |
+           +Script of the Bridge
+              |
+              +-- 01 - Don't Fall.mp3
+                  02 - Here Today.mp3
 
 The command to do this is:
 
