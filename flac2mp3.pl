@@ -17,6 +17,8 @@ use Carp;
 use FindBin;
 use lib "$FindBin::RealBin/lib";
 
+use version; our $VERSION = qv("v0.1.0");
+
 use Audio::FLAC::Header;
 use Data::Dumper;
 use Encode;
@@ -415,6 +417,11 @@ Options:
                      Default: "/"
     --copyfiles      Copy non-flac files to dest directories
 EOT
+  exit 0;
+}
+
+sub showversion{
+  msg($VERSION);
   exit 0;
 }
 
