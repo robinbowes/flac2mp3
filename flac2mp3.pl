@@ -401,7 +401,7 @@ Options:
     --debug          Enable debugging output. For developers only!
     --tagsonly       Don't do any transcoding - just update tags
     --force          Force transcoding and tag update even if not required
-    --tagdiff	     Print source/dest tag values if different
+    --tagdiff        Print source/dest tag values if different
     --lameargs='s'   specify parameter(string) to be passed to the LAME Encoder
                      Default: "--noreplaygain --vbr-new -V 2 -h --nohist --quiet"
     --noskipfile     Ignore any skip files
