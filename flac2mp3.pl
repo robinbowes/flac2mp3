@@ -687,7 +687,7 @@ sub transcode_file {
 		$Options{info}
             && msg( $pretendString . "Transcoding    \"$source\"" );
 
-        my $convert_command = "\"$flaccmd\" @flacargs \"$source\"" . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
+        my $convert_command = "\"$flaccmd\" @flacargs " . quotemeta($source) . "| \"$lamecmd\" @lameargs - " . quotemeta($tmpfilename);
 
         $Options{debug} && msg("transcode: $convert_command");
 
