@@ -1,3 +1,6 @@
+v1.0.0
+- Lots of bugs fixed and features added so decided to release v1.0.0
+- --version option now works!
 v0.3.0
  - Remove File::Glob (it's in core) and add Text::Glob 
  - Re-work & refactor the search/checking code

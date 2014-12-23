@@ -17,6 +17,8 @@ use Carp;
 use FindBin;
 use lib "$FindBin::RealBin/lib";
 
+use version; our $VERSION = qv("v1.0.0");
+
 use Audio::FLAC::Header;
 use Data::Dumper;
 use Encode;
@@ -401,7 +403,7 @@ Options:
     --debug          Enable debugging output. For developers only!
     --tagsonly       Don't do any transcoding - just update tags
     --force          Force transcoding and tag update even if not required
-    --tagdiff	     Print source/dest tag values if different
+    --tagdiff        Print source/dest tag values if different
     --lameargs='s'   specify parameter(string) to be passed to the LAME Encoder
                      Default: "--noreplaygain --vbr-new -V 2 -h --nohist --quiet"
     --noskipfile     Ignore any skip files
@@ -415,6 +417,11 @@ Options:
                      Default: "/"
     --copyfiles      Copy non-flac files to dest directories
 EOT
+  exit 0;
+}
+
+sub showversion{
+  msg($VERSION);
   exit 0;
 }
 
@@ -720,8 +727,11 @@ sub transcode_file {
     $Options{info}
       && msg( $pretendString . "Transcoding    \"$source\"" );
 
-    my $convert_command = "\"$flaccmd\" @flacargs \"$source\""
-      . "| \"$lamecmd\" @lameargs - \"$tmpfilename\"";
+    my $convert_command =
+        "\"$flaccmd\" @flacargs "
+      . quotemeta($source)
+      . "| \"$lamecmd\" @lameargs - "
+      . quotemeta($tmpfilename);
 
     $Options{debug} && msg("transcode: $convert_command");
 
