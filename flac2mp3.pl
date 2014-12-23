@@ -17,7 +17,7 @@ use Carp;
 use FindBin;
 use lib "$FindBin::RealBin/lib";
 
-use version; our $VERSION = qv("v0.1.0");
+use version; our $VERSION = qv("v1.0.0");
 
 use Audio::FLAC::Header;
 use Data::Dumper;
