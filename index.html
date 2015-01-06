@@ -51,7 +51,7 @@ conversion process again.</p>
 
 <p>It can take a directory structure like this:</p>
 
-<p>lossless
+<pre>lossless
   |
   +--Coldplay
   |    |
@@ -64,11 +64,11 @@ conversion process again.</p>
        +Script of the Bridge
           |
           +-- 01 - Don't Fall.flac
-              02 - Here Today.flac</p>
+              02 - Here Today.flac</pre>
 
 <p>And produce a directory structure like this:</p>
 
-<p>lossy
+<pre>lossy
   |
   +--Coldplay
   |    |
@@ -81,31 +81,31 @@ conversion process again.</p>
        +Script of the Bridge
           |
           +-- 01 - Don't Fall.mp3
-              02 - Here Today.mp3</p>
+              02 - Here Today.mp3</pre>
 
 <p>The command to do this is:</p>
 
-<p>flac2mp3.pl /path/to/lossless /path/to/lossy</p>
+<pre>flac2mp3.pl /path/to/lossless /path/to/lossy</pre>
 
 <p>Now, suppose I notice that I've spelled "coldplay" wrongly. I simply
 use a tag editor to correct the flac files then run flac2mp3 again
 to update the tags in the mp3 files:</p>
 
-<p>flac2mp3.pl /path/to/lossless /path/to/lossy</p>
+<pre>flac2mp3.pl /path/to/lossless /path/to/lossy</pre>
 
 <p>flac2mp3 will detect that just the tags have changed in the flac files
 and update the mp3 files without re-transcoding. </p>
 
 <p>Command-line options can be seen by typing "flac2mp3.pl" with no options:</p>
 
-<p>Usage: ./flac2mp3.pl [--pretend] [--quiet] [--debug] [--tagsonly] [--force]
+<pre>Usage: ./flac2mp3.pl [--pretend] [--quiet] [--debug] [--tagsonly] [--force]
 [--tagdiff] 
     --pretend       Don't actually do anything
     --quiet         Disable informational output to stdout
     --debug         Enable debugging output. For developers only!
     --tagsonly      Don't do any transcoding - just update tags
     --force         Force transcoding and tag update even if not required
-    --tagdiff       Print source/dest tag values if different</p>
+    --tagdiff       Print source/dest tag values if different</pre>
 
 <h1>Installation</h1>
 
@@ -115,8 +115,8 @@ directory of your choice.</p>
 
 <p>For example, on linux:</p>
 
-<p># cd ~/bin
- # tar zxvf flac2mp3-0.3.0.tar.gz</p>
+<pre># cd ~/bin
+# tar zxvf flac2mp3-0.3.0.tar.gz</pre>
 
 <p>On Windows, you can use Winzip or other utility to unzip the file and
 extract the archive.</p>
