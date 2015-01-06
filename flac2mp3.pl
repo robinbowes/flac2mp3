@@ -52,20 +52,42 @@ use Digest::MD5;
 my $flaccmd = 'flac';
 my $lamecmd = 'lame';
 
-# Modify lame options if required
-my @lameargs = qw (
-  --noreplaygain
-  --vbr-new
-  -V 2
-  -h
-  --nohist
-  --quiet
+# Modify presets if required
+my %presets = (
+  'V2' => [
+    '--noreplaygain',
+    '--vbr-new',
+    '-V 2',
+    '-h',
+    '--nohist',
+    '--quiet'
+  ],
+  'V0' => [
+    '--noreplaygain',
+    '--vbr-new',
+    '-V 0',
+    '-h',
+    '--nohist',
+    '--quiet'
+  ],
+  '320' => [
+    '--noreplaygain',
+    '-b 320',
+    '-h',
+    '--nohist',
+    '--quiet'
+  ],
 );
+
+# Use V2 preset by default
+my $PRESET_DEFAULT = 'V2';
 
 # Use one process by default
 my $NUM_PROCESSES_DEFAULT = 1;
 
 # -------- User-config options end here ---------
+
+my @lameargs = @{$presets{$PRESET_DEFAULT}};
 
 # use Id3 v2.3.0 tag separator by default
 my $TAG_SEPARATOR_DEFAULT = '/';
@@ -156,7 +178,8 @@ GetOptions(
   \%Options,     "quiet!",         "tagdiff",    "debug!",
   "tagsonly!",   "force!",         "usage",      "help",
   "version",     "pretend",        "skipfile!",  "skipfilename=s",
-  "processes=i", "tagseparator=s", "lameargs=s", "copyfiles"
+  "processes=i", "tagseparator=s", "preset=s",   "lameargs=s",
+  "copyfiles"
 );
 
 # info flag is the inverse of --quiet
@@ -174,6 +197,15 @@ showusage()
   or $Options{processes} < 1
   or $Options{usage}
   or $Options{help} );
+
+croak "--lameargs and --preset are mutually exclusive options"
+  if $Options{lameargs} && $Options{preset};
+
+croak "Chosen preset does not exist"
+  if $Options{preset} && !defined $presets{$Options{preset}};
+
+@lameargs = @{$presets{$Options{preset}}}
+  if $Options{preset};
 
 @lameargs = $Options{lameargs}
   if $Options{lameargs};
@@ -404,6 +436,9 @@ Options:
     --tagsonly       Don't do any transcoding - just update tags
     --force          Force transcoding and tag update even if not required
     --tagdiff        Print source/dest tag values if different
+    --preset='s'     Select a popular parameter set for the LAME encoder
+                     Valid: "V0", "V2", "320"
+                     Default: "V2"
     --lameargs='s'   specify parameter(string) to be passed to the LAME Encoder
                      Default: "--noreplaygain --vbr-new -V 2 -h --nohist --quiet"
     --noskipfile     Ignore any skip files
