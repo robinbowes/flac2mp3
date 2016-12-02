@@ -8,7 +8,6 @@ package MP3::Tag::ID3v2;
 
 use strict;
 use File::Basename;
-use File::Temp;
 # use Compress::Zlib;
 
 use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3
@@ -16,7 +15,7 @@ use vars qw /%format %long_names %res_inp @supported_majors %v2names_to_v3
 	     %back_splt %embedded_Descr
 	    /;
 
-$VERSION = "1.12_TS"; # custom version of v1.12 w/ thread safe generation of temp files
+$VERSION = "1.14";
 @ISA = 'MP3::Tag::__hasparent';
 
 my $trustencoding = $ENV{MP3TAG_DECODE_UNICODE};
@@ -627,26 +626,22 @@ sub build_tag {
 sub insert_space {
 	my ($self, $insert) = @_;
 	my $mp3obj = $self->{mp3};
-	my $target = $mp3obj->{filename};
 	# !! use a specific tmp-dir here
-	my $tempfh = new File::Temp(
-                UNLINK => 1,
-                DIR    => dirname($mp3obj->{filename}),
-                SUFFIX => '.tmp'
-            );
-	my $tempfile = $tempfh->filename;
-
-	# Change file permissions to default value.
-	# Permissions will otherwise (at least on *nix) 
-	# be 0600 regardless of umask, due the File::Temp module.
-	chmod umask ^ 0666, $tempfile;
-
-	if ($@) {
+	my $tempfile = dirname($mp3obj->{filename}) . "/TMPxx";
+	my $count = 0;
+	while (-e $tempfile . $count . ".tmp") {
+		if ($count++ > 999) {
+			warn "Problems with tempfile\n";
+			return undef;
+		}
+	}
+	$tempfile .= $count . ".tmp";
+	unless (open (NEW, ">$tempfile")) {
 		warn "Can't open '$tempfile' to insert tag\n";
 		return -1;
 	}
 	my ($buf, $pos_old);
-	binmode $tempfh;
+	binmode NEW;
 	$pos_old=0;
 	$mp3obj->seek(0,0);
 	local $\ = '';
@@ -655,12 +650,12 @@ sub insert_space {
 		if ($pos_old < $ins->[0]) {
 			$pos_old += $ins->[0];
 			while ($mp3obj->read(\$buf,$ins->[0]<16384?$ins->[0]:16384)) {
-				print $tempfh $buf;
+				print NEW $buf;
 				$ins->[0] = $ins->[0]<16384?0:$ins->[0]-16384;
 			}
 		}
 		for (my $i = 0; $i<$ins->[2]; $i++) {
-			print $tempfh chr(0);
+			print NEW chr(0);
 		}
 		if ($ins->[1]) {
 			$pos_old += $ins->[1];
@@ -669,23 +664,17 @@ sub insert_space {
 	}
 
 	while ($mp3obj->read(\$buf,16384)) {
-		print $tempfh $buf;
+		print NEW $buf;
 	}
-	$tempfh->unlink_on_destroy(0);
-	$tempfh->close;
-            
+	close NEW;
 	$mp3obj->close;
 
 	# rename tmp-file to orig file
-	unless ( rename($tempfile,$target) ) {
-		my $delay_duration = 1; 
-		select(undef, undef, undef, $delay_duration);
-		print("-------Sleeping for $delay_duration s\n"); # Hack to avoid some problems on MSWin systems
-		unless ( rename($tempfile, $target) ){ # second try at renaming
-			unlink($tempfile);
-			warn "******* Couldn't rename temporary file $tempfile to $target\n";
-			return -1;
-		}
+	unless (( rename $tempfile, $mp3obj->{filename})||
+	    (system("mv",$tempfile,$mp3obj->{filename})==0)) {
+		unlink($tempfile);
+		warn "Couldn't rename temporary file $tempfile to $mp3obj->{filename}\n";
+		return -1;
 	}
 	return 0;
 }
@@ -905,26 +894,31 @@ directly, which will override an old tag.
 sub remove_tag {
     my $self = shift;
     my $mp3obj = $self->{mp3};  
-
-    my ($tempfh, $tempfile) = eval {
-	tempfile("TMPXXXX", SUFFIX => ".tmp", DIR => dirname($mp3obj->{filename}), UNLINK => 0)
-    };
-    if ($@) {
-	warn "Couldn't write temp file\n";
-	return undef;
-    }
+    my $tempfile = dirname($mp3obj->{filename}) . "/TMPxx";
+    my $count = 0;
     local $\ = '';
-    my $buf;
-    binmode $tempfh;
-    $mp3obj->seek($self->{tagsize}+10,0);
-    while ($mp3obj->read(\$buf,16384)) {
-	print $tempfh $buf;
+    while (-e $tempfile . $count . ".tmp") {
+	if ($count++ > 999) {
+	    warn "Problems with tempfile\n";
+	    return undef;
+	}
     }
-    close $tempfh;
+    $tempfile .= $count . ".tmp";
+    if (open (NEW, ">$tempfile")) {
+	my $buf;
+	binmode NEW;
+	$mp3obj->seek($self->{tagsize}+10,0);
+	while ($mp3obj->read(\$buf,16384)) {
+	    print NEW $buf;
+	}
+	close NEW;
 	$mp3obj->close;
 	unless (( rename $tempfile, $mp3obj->{filename})||
 		(system("mv",$tempfile,$mp3obj->{filename})==0)) {
 	    warn "Couldn't rename temporary file $tempfile\n";
+	}
+    } else {
+	warn "Couldn't write temp file\n";
 	return undef;
     }
     return 1;
@@ -1404,6 +1398,16 @@ sub title {
     return join '', @parts, $last;
 }
 
+sub have_one_of_frames {
+    my $self = shift;
+    return grep $self->frame_have($_), @_;
+}
+
+sub title_have {
+    my $self = shift;
+    $self->have_one_of_frames($self->v2title_order)
+}
+
 =item _comment([$language])
 
 Returns the file comment (COMM with an empty 'Description') from the tag, or
@@ -1412,8 +1416,8 @@ of the title).
 
 =cut
 
-sub _comment {
-    my $self = shift;
+sub __comment {
+    my($self, $check_have) = (shift, shift);
     my $language;
     $language = lc shift if @_;
     my @info = get_frames($self, "COMM");
@@ -1423,10 +1427,20 @@ sub _comment {
 	next unless exists $comment->{Description} and not length $comment->{Description};
 	next if defined $language and (not exists $comment->{Language}
 				       or lc $comment->{Language} ne $language);
-	return $comment->{Text};
+	return $check_have ? 1 : $comment->{Text} ;
     }
     return if grep $_ eq 'TIT3', $self->v2title_order;
-    return scalar $self->get_frame("TIT3");
+    return $check_have ? $self->frame_have("TIT3") : scalar $self->get_frame("TIT3");
+}
+
+sub _comment {
+    my $self = shift;
+    $self->__comment(!'only_check', @_);
+}
+
+sub comment_have {
+    my $self = shift;
+    $self->__comment('only_check', @_);
 }
 
 =item comment()
@@ -1863,6 +1877,11 @@ sub year {
     return $y;
 }
 
+sub year_have {
+    my $self = shift;
+    $self->have_one_of_frames(qw( TDRC TYER ))
+}
+
 =pod
 
 =item track( [$new_track] )
@@ -1882,6 +1901,11 @@ sub track {
 	return $self->add_frame('TRCK', @_);
     }
     return scalar $self->get_frame("TRCK");
+}
+
+sub track_have {
+    my $self = shift;
+    $self->frame_have('TRCK')
 }
 
 =pod
@@ -1917,6 +1941,11 @@ sub artist {
     return;
 }
 
+sub artist_have {
+    my $self = shift;
+    $self->have_one_of_frames(qw( TPE1 TPE2 TCOM TPE3 TEXT ))
+}
+
 =pod
 
 =item album( [ $new_album ] )
@@ -1943,6 +1972,13 @@ sub album {
     return scalar $self->get_frame("TIT1");
 }
 
+sub album_have {
+    my $self = shift;
+    return 1 if $self->frame_have('TALB');
+    return if grep $_ eq 'TIT1', $self->v2title_order;
+    return $self->frame_have('TIT1');
+}
+
 =item genre( [ $new_genre ] )
 
 Returns the genre string from TCON frame of the tag.
@@ -1963,6 +1999,11 @@ sub genre {
     return unless defined $g;
     $g =~ s/^\d+\0(?:.)//s;		# XXX Shouldn't this be done in TCON()?
     $g;
+}
+
+sub genre_have {
+    my $self = shift;
+    $self->frame_have('TCON')
 }
 
 =item version()

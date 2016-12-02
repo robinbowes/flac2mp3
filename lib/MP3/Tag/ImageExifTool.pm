@@ -5,14 +5,14 @@ use File::Basename;
 #use File::Spec;
 use vars qw /$VERSION @ISA/;
 
-$VERSION="0.01";
+$VERSION="1.14";
 @ISA = 'MP3::Tag::__hasparent';
 
 =pod
 
 =head1 NAME
 
-MP3::Tag::ImageExifTool - extract size info from image files via L<Image::Size|Image::Size>.
+MP3::Tag::ImageExifTool - extract size info from image files via L<Image::ExifTool|Image::ExifTool>.
 
 =head1 SYNOPSIS
 
@@ -24,9 +24,12 @@ see L<MP3::Tag>
 
 MP3::Tag::ImageExifTool is designed to be called from the MP3::Tag module.
 
-It implements width(), height() and mime_type() methods (sizes in pixels).
+It implements the (standard) methods qw(title track artist album year genre comment),
+as well as width(), height(), bit_depth(), _duration() and mime_type() methods (sizes in pixels).
 
-They return C<undef> if C<Image::Size> is not available, or does not return valid data.
+Use method C<field('FieldName')> to access a particular field provided by C<Image::ExifTool>.
+
+These methods return C<undef> if C<Image::ExifTool> is not available, or does not return valid data.
 
 =cut
 
