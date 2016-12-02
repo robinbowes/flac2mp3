@@ -27,6 +27,7 @@ use strict;
     return $self->{parent}->get_config(@_);
   }
   *get_config1 = \&MP3::Tag::Implemenation::get_config1;
+  *get_config1 = 0 if 0;	# quiet a warning
 }
 
 use MP3::Tag::ID3v1;
@@ -41,7 +42,7 @@ use MP3::Tag::ImageExifTool;
 use MP3::Tag::LastResort;
 
 use vars qw/$VERSION @ISA/;
-$VERSION="1.13";
+$VERSION="1.14";
 @ISA = qw( MP3::Tag::User MP3::Tag::Site MP3::Tag::Vendor
 	   MP3::Tag::Implemenation ); # Make overridable
 *config = \%MP3::Tag::Implemenation::config;
@@ -89,6 +90,7 @@ use vars qw/%config/;
  # ExifTool says: ID3 may be in MP3/MPEG/AIFF/OGG/FLAC/APE/RealAudio (MPC).
 	    writable_extensions		  => [qw(mp3 mp2 id3 tag ogg mpg mpeg
 						 mp4 aiff flac ape ram mpc)],
+	    ampersand_joiner		  => ['; '],
 	  );
 {
   my %e;
@@ -307,6 +309,7 @@ sub _get_tag {
 
 # keep old name for a while
 *getTags = \&get_tags;
+*getTags = 0 if 0;	# quiet a warning
 
 =item new_fake
 
@@ -360,6 +363,7 @@ sub new_tag {
 
 # keep old name for a while
 *newTag = \&new_tag;
+*newTag = 0 if 0;	# quiet a warning
 
 #only as a shortcut to {filename}->close to explicitly close a file
 
@@ -590,24 +594,50 @@ sub disk_alphanum ($) {
 
 my %ignore_0length = qw(ID3v1 1 CDDB_File 1 Inf 1 Cue 1 ImageSize 1 ImageExifTool 1);
 
-sub auto_field($;$) {
-    my ($self, $elt, $from) = (shift, shift, shift);
+sub _auto_field_from($$$;$$$$) {
+    my ($self, $check_only, $packs, $rwhat, $ret_from, $args, $all) = (shift, shift, shift, shift, shift, shift || [], shift);
+    my @what = ref $rwhat ? @$rwhat : $rwhat;
+    my @out;
     local $self->{__proxy}[0] = $self unless $self->{__proxy}[0] or $ENV{MP3TAG_TEST_WEAKEN};
 
-    my $parts = $self->get_config($elt) || $self->get_config('autoinfo');
     $self->get_tags;
 
-    my $do_can = ($elt =~ /^(cd\w+_id|height|width|bit_depth|mime_type|img_type|_duration)$/);
-    foreach my $part (@$parts) {
-	next unless exists $self->{$part};
-	next if $do_can and not $self->{$part}->can($elt);
-	next unless defined (my $out = $self->{$part}->$elt());
-	# Ignore 0-length answers from ID3v1, ImageExifTool, CDDB_File, Cue, ImageSize, and Inf
-	next if not length $out and $ignore_0length{$part}; # These return ''
-	return [$out, $part] if $from;
+    # ID3v1 has AUTOLOAD
+#    my $do_can = ($what =~ /^(cd\w+_id|height|width|bit_depth|mime_type|img_type|_duration)$/);
+    foreach my $pack (@$packs) {
+	next unless exists $self->{$pack};
+	my $do_can = $pack ne 'ID3v1';
+	my $out;
+	for my $what (@what) {
+	  next if $pack eq 'ID3v1' and not $MP3::Tag::ID3v1::ok_length{$what};	# dup of a warning in AUTOLOAD
+          next if $do_can and not $self->{$pack}->can($what);
+          if ($check_only and $self->{$pack}->can(my $m = $what . '_have')) {
+            next unless $self->{$pack}->$m(@$args);
+            return $ret_from ? [1, $pack] : 1;
+          }
+          next unless defined ($out = $self->{$pack}->$what(@$args));
+          # Ignore 0-length answers from ID3v1, ImageExifTool, CDDB_File, Cue, ImageSize, and Inf
+          undef $out, next if not length $out and $ignore_0length{$pack}; # These return ''
+	}
+	next unless defined $out;
+	$out = 1 if $check_only;
+	if ($all) {			# Currently, @out is not used by our callers
+	  push @out, ($ret_from ? [$out, $pack] : $out);
+	  next;
+	}
+	return [$out, $pack] if $ret_from;
 	return $out;
     }
-    return '';
+    return @out if $all;
+    return;
+}
+
+sub auto_field($;$$) {
+    my ($self, $what, $ret_from) = (shift, shift, shift);
+    my $packs = $self->get_config($what) || $self->get_config('autoinfo');
+    my $o = $self->_auto_field_from(!'check_only', $packs, $what, $ret_from);
+    return '' unless defined $o;
+    $o;
 }
 
 for my $elt ( qw( title track artist album comment year genre ) ) {
@@ -1182,7 +1212,7 @@ sub config {
 		   decode_encoding_filename decode_encoding_files
 		   decode_encoding_inf decode_encoding_cddb_file
 		   name_for_field_normalization is_writable writable_extensions
-		   id3v2_frames_autofill local_cfg_file);
+		   id3v2_frames_autofill local_cfg_file ampersand_joiner);
     my @tr = map "translate_$_", qw( title track artist album comment
 				     year genre comment_collection
 				     comment_track title_track
@@ -1797,7 +1827,7 @@ conditionals too, with C<:>.)
 
 =item *
 
-Strings of the form C<FRAM(list,of,languages)[description]'> are
+Strings of the form C<FRAM(list,of,languages)[description]> are
 replaced by the first FRAM frame with the descriptor "description" in
 the specified comma-separated list of languages.  Instead of a
 language (ID3v2 uses lowercase 3-char ISO-639-2 language notations) one can use
@@ -1815,12 +1845,26 @@ match is case-insensitive.
 =item *
 
 Several descriptors of the form
-C<FRAM(list,of,languages)[description]'> discussed above may be
+C<FRAM(list,of,languages)[description]> discussed above may be
 combined together with C<&>; the non-empty expansions are joined
-together with C<"; ">.  Example:
+together with the value of configuration variable C<ampersand_joiner>
+(default C<"; ">).  Example:
 
   %{TXXX[pre-title]&TIT1&TIT2&TIT3&TXXX[post-title]}
 
+
+=item *
+
+Strings of the form C<method(list,of,packages)[arg1][arg2]> are replaced
+by the result of C<method> (with the given arguments) in one of the specified
+known subpackages (e.g., for C<Inf>,  C<MP3::Tag::Inf> is used).  Arbitrary number
+of arguments is supported.  Instead of a long name C<method> one can use its
+standard shortcut (e.g., C<t> for C<title>).  For example,
+
+  $mp3->interpolate('%{t(ID3v1,Cue)}')
+
+returns the title from the ID3v1 tag, or (if not there) from a cue sheet.
+One can use this in conditionals etc as well.
 
 =item *
 
@@ -1884,7 +1928,7 @@ corresponding method.
 
 C<frames> is replaced by space-separated list of "long names" of ID3v2
 frames (see id3v2_frame_descriptors()).  (To use a different separator,
-put it after slash, as in %{frames/, }, where separator is COMMA
+put it after slash, as in C<%{frames/, }>, where separator is COMMA
 SPACE).
 
 =item *
@@ -1981,6 +2025,8 @@ will result in C<39:05.620sec>.
 
 =cut
 
+# `
+
 my %trans = qw(	t	title
 		a	artist
 		l	album
@@ -2057,8 +2103,22 @@ my %trans = qw(	t	title
 #	%O      Original material flag (string)
 #	%G      Musical genre (integer)
 
-my $frame_bra =			# FRAM | FRAM03 | FRAM(lang)[
-  qr{\w{4}(?:(?:\d\d)|(?:\([^()]*(?:\([^()]+\)[^()]*)*\))?(?:(\[)|(?=[\}:|&])))}s; # 1 group for begin-descr
+# Made as tags: ParseData ID3v2 ID3v1 ImageExifTool Inf CDDB_File Cue ImageSize LastResort
+my %handlers = map {($_, 1)} qw(
+  CDDB_File  File   ID3v2        ImageExifTool  Inf         ParseData
+  Cue        ID3v1  ImageSize    LastResort
+);	# Inf/Cue are not in language list: https://www.loc.gov/standards/iso639-2/php/code_list.php
+
+#$handler_r = qr/$handler_r/;
+#
+#my $frame_bra =			# FRAM | FRAM03 | FRAM(lang)[
+#  qr{\w{4}(?:(?:\d\d)|(?:\([^()]*(?:\([^()]+\)[^()]*)*\))?(?:(\[)|(?=[\}:|&])))}s; # 1 group for begin-descr
+
+my $at_end_frame_name = qr/(?=[\}:|&])/;
+my $lang_or_handlers_rex = qr/\(([^()]*(?:\([^()]+\)[^()]*)*)\)/;
+my $frame_bra =			# FRAM | FRAM03 | FRAM(lang)[ | cmd(PACKAGES) | cmd(PACKAGES)[args]
+  qr{(?:\w{4}(?=\d\d\b|\b)|(?!I\b)\w+(?=\())(?:\d\d|$lang_or_handlers_rex?(?:(\[)|$at_end_frame_name))}s; # 2 groups for descr + bra
+
 # used with offset by 1: 2: fill, 3: same, 4: $left, 5..6 width, 7: key
 my $pat_rx = qr/^%(?:(?:\((.)\)|([^-.1-9%a-zA-Z]))?(-)?(\d+))?(?:\.(\d+))?([talgcynfFeEABDNvLrqQSmsCpouMHwh{%])/s;
 # XXXX Partially repeated below, search for `talgc'??? vLrqQSmsCpouMH miss???
@@ -2066,6 +2126,16 @@ my $pat_rx = qr/^%(?:(?:\((.)\)|([^-.1-9%a-zA-Z]))?(-)?(\d+))?(?:\.(\d+))?([talg
 my $longer_f = qr(a[3CRI]|tT|c[TC]|i[DIT]|n[012]|m[A12TP]|bD);
 # (a[CR]|tT|c[TC]|[mMS]L|SML|i[DIT]|n[012]|m[A12T]|bD)
 #  a[CR]|tT|c[TC]|i[DIT]|n[012]|m[A12T]|bD
+
+sub process_handlers ($$$$;$$) {	# only 1 level of parens allowed in flags
+   my ($self, $h, $handlers, $args, $cond, $set) = (shift, shift, shift, shift, shift, shift);
+#   die "Conditionals with handlers not supported yet" if $cond;
+   die "Handlers with arguments not supported yet" if @$args;
+   my (@f) = ($h =~ /^(\w+)/) or die "Panic: `$h' as a handler";
+   push @f, $trans{$f[0]} if exists $trans{$f[0]};
+   $set and $_ .= '__set' for @f;
+   $self->_auto_field_from($cond, $handlers, \@f, undef, $args, $set);	# if $set, calls a method in all packages where possible
+}
 
 # $upto TRUE: parse the part including $upto char
 # Very restricted backslashitis: only $upto and \ before $upto-or-end
@@ -2079,8 +2149,8 @@ sub _interpolate ($$;$$) {
     my $ids;
     die "upto=`$upto' not supported" if $upto and $upto ne ']' and $upto ne'}';
     die "upto=`$upto' not supported with skip"
-      if $upto and not defined $upto and $skip;
-    my $cnt = ($upto or not defined $upto) ? -1 : 1; # upto eq '': 1 escape
+      if $upto and not defined $upto and $skip;		# XXXX Unreachable???
+    my $cnt = ($upto or not defined $upto) ? -1 : 1;	# upto eq '': 1 escape
 
     while ($cnt-- and ($upto	# undef and '' use the same code
 		       ? ($upto eq ']'
@@ -2115,48 +2185,52 @@ sub _interpolate ($$;$$) {
 	    next if $skip;
 	    my $meth = $trans{$1};
 	    $str = $self->$meth();
-	} elsif ($what eq '{' and # $frame_bra has 1 group, No. 5
+	} elsif ($what eq '{' and # $frame_bra has 2 groups, No. 5, 6
 		 # 2-char fields as above, except for [mMS]L|SML (XXX: vLrqQSmsCpouMH ???)
 		 $_[1] =~ s/^(!)?(([talgcynfFeEABDNvLrqQSmsCpouMHwh]|ID3v[12]|ID3v2-modified|$longer_f|U\d+)(:|\|\|?)|$frame_bra)//o) {
 	    # Alternation with simple/complicated stuff
-	    my ($neg, $id, $simple, $delim) = ($1, $2, $3, $4);
-	    if ($delim) {	# Not a frame id...
+	    my ($neg, $id, $simple, $delim, $lang_or_packages, $have_bra) = ($1, $2, $3, $4, $5, $6);
+
+            my(@_handlers, @args) = split /,/, ($lang_or_packages || '');
+            my @handlers = grep $handlers{$_}, @_handlers;
+            $delim or $id =~ /^[A-Z]{3}[A-Z\d](\d\d)?\b/ or @handlers and @handlers == @_handlers
+              or die "Cannot parse frame descriptor: <<<$id>>>";
+
+	    if ($delim) {	# Not a frame/cmd id...
 	      $id = $simple;
-	    } else {		# Frame: maybe trailed by :, |, ||, maybe not
-	      $id .= ($self->_interpolate($_[1], ']', $skip) . ']') if $5;
+	    } else {		# Frame/cmd: maybe trailed by :, |, ||, maybe not
+              while (@handlers and $have_bra) {
+                push @args, $self->_interpolate($_[1], ']', $skip);
+                $have_bra = ($_[1] =~ s/^\[//);
+              }
+	      $id .= ($self->_interpolate($_[1], ']', $skip) . ']') if $have_bra;	# unreachable if handler present!
 	      $_[1] =~ s/^(:|\|\|?)// and $delim = $1;
 	      unless ($delim) {
 		die "Can't parse negated conditional: I see `$_[1]'" if $neg;
 		my $nonesuch = 0;
-		unless ($self->{ID3v2} or $neg) {
+		unless (@handlers or $self->{ID3v2} or $neg) {
 		  die "No ID3v2 present"
 		    if $self->get_config('id3v2_missing_fatal');
 		  $nonesuch = 1;
 		}
-		if ($_[1] =~ s/^}//) { # frame with optional (lang)/[descr]
-		  next if $skip or $nonesuch;
-		  $str = $self->select_id3v2_frame_by_descr($id);
-		  #$str = $str->{_Data} if $str and ref $str and exists $str->{_Data};
-		} elsif ($_[1] =~ /^&/o) {
-		  # join of frames with optional (language)/[descriptor]
-		  my @id = $id;
-		  while ($_[1] =~ s/^&($frame_bra)//o) {
-		    $id = $1;
-		    $id .= ($self->_interpolate($_[1], ']', $skip) . ']') if $2;
-		    next if $skip or $nonesuch;
-		    push @id, $id;
+		next if ($skip or $nonesuch) and $_[1] =~ s/^\}//;
+		if ($_[1] =~ /^[\}&]/) { # frame with optional (lang)/[descr], or a package-handled descriptor
+		  if (@handlers) {
+		    $str = $self->process_handlers($id, \@handlers, \@args) unless $skip;
+#		    $str = '' if not defined $str and $1 eq '&';
+		  } else {
+		    $str = $self->select_id3v2_frame_by_descr($id);
 		  }
-		  die "Can't parse &-list; I see `$_[1]'" unless $_[1] =~ s/^}//;
-		  next if $skip or $nonesuch;
-		  my @out;
-		  for my $in (@id) {
-		    $in = $self->select_id3v2_frame_by_descr($in);
-		    #$in = $in->{_Data} if $in and ref $in and exists $in->{_Data};
-		    push @out, $in if defined $in and length $in;
-		  }
-		  $str = join '; ', @out;
 		} else {
 		  die "unknown frame terminator; I see `$_[1]'";
+		}
+		if ($_[1] =~ s/^&/%\{/) {	  # join of frames with optional (language)/[descriptor], etc
+		  my $rest = $self->_interpolate($_[1], '', $skip);
+		  next if $skip;
+		  my $joiner = $self->get_config1('ampersand_joiner');	# default '; '
+		  $str = join $joiner, map {(defined and length) ? $_ : ()} $str, $rest;
+		} else {
+		  $_[1] =~ s/^\}//;
 		}
 	      }
 	    }
@@ -2176,13 +2250,17 @@ sub _interpolate ($$;$$) {
 		die "ID3v2 or ID3v1 as conditionals incompatible with $alt"
 		  if $alt;
 		$have = !! $self->{$simple}; # Make logical
-	      } else {
-		$have = $self->have_id3v2_frame_by_descr($id);
-	      }
-	      my $skipping = $skip || (not $alt and $1 ? $have : !$have);
+	      } elsif (@handlers) {
+#	      		warn "\t!!! Handlers";
+                $have = $self->process_handlers($id, \@handlers, \@args, 'cond');
+              } else {
+                $have = $self->have_id3v2_frame_by_descr($id);
+#	      		warn "\t!!! Cond: <<$id>> <<$have>>";
+              }
+	      my $skipping = $skip || (not $alt and $neg ? $have : !$have);
 	      my $s;
 	      if ($alt and $alt ne '||') { # Need to prepend %
-		if ($_[1] =~ s/^([^\\])}//) { # One-char escape
+		if ($_[1] =~ s/^([^\\])\}//) { # One-char escape
 		  $s = $self->interpolate("%$1") unless $skipping;
 		} else {	# Understood with {}; prepend %{
 		  $_[1] =~ s/^/%\{/ or die;
@@ -2192,8 +2270,13 @@ sub _interpolate ($$;$$) {
 		$s = $self->_interpolate($_[1], '}', $skipping);
 	      }
 	      next if $skipping;
-	      $str = $self->select_id3v2_frame_by_descr($id)
-		if $alt and $have and not $simple;
+	      if ($alt and $have and not $simple) {
+                if (@handlers) {
+                  $str = $self->process_handlers($id, \@handlers, \@args);
+                } else {
+                  $str = $self->select_id3v2_frame_by_descr($id);
+                }
+	      }
 	      $str = $s unless $have and $alt;
 	      $str = $str->{_Data}
 		if $str and ref $str and exists $str->{_Data};
@@ -2398,11 +2481,13 @@ sub interpolate_with_flags ($$$) {
 =item parse_rex($pattern, $string)
 
 Parse $string according to the regular expression $pattern with
-C<%>-escapes C<%%, %a, %t, %l, %y, %g, %c, %n, %e, %E>.  The meaning
-of escapes is the same as for method L<"interpolate">(); but they are
+C<%>-escapes C<%%, %a, %t, %l, %y, %g, %c, %n, %e, %E> etc.  The meaning
+of escapes is the same as for method L<"interpolate">(); but (with
+the exception of C<%%>) they are
 used not for I<expansion>, but for I<matching> a part of $string
 suitable to be a value for these fields.  Returns false on failure, a
-hash reference with parsed fields otherwise.
+hash reference with parsed fields otherwise (with C<%a> setting the
+field C<author>, etc).
 
 Some more escapes are supported: C<%=a, %=t, %=l, %=y, %=g, %=c, %=n, %=e,
 %=E, %=A, %=B, %=D, %=f, %=F, %=N, %={WHATEVER}> I<match>
@@ -2413,10 +2498,12 @@ configuration variable C<parse_filename_merge_dots> is true (default))
 and are case-insensitive if configuration variable
 C<parse_filename_ignore_case> is true (default); moreover, C<%n>,
 C<%y>, C<%=n>, C<%=y> will not match if the string-to-match is
-adjacent to a digit).
+adjacent to a digit).  Double C<=> if you want to match to fail when
+the corresponding conditional C<%>-escape would fail (a missing field,
+or a zero-length field for required fields).
 
 The escapes C<%{UE<lt>numberE<gt>}> and escapes of the forms
-C<%{ABCD}>, C<%{ABCDE<lt>numberE<gt>}> match any string; the
+C<%{ABCD}> match any string; the
 corresponding hash key in the result hash is what is inside braces;
 here C<ABCD> is a 4-letter word possibly followed by 2-digit number
 (as in names of ID3v2 tags), or what can be put in
@@ -2432,6 +2519,13 @@ years in the range 1000..2999 are allowed for year.  Alternatively, if
 option year_is_timestamp is TRUE (default), year may be a range of
 timestamps in the format understood by ID3v2 method year() (see
 L<MP3::Tag::ID3v2/"year">).
+
+The escape C<%E> matches the REx in the configuration variable C<extension>;
+the escape C<%e> matches the part of %E after the leading dot.
+
+In list context, also returns an array reference with %{handler} groups
+parsed (if present).  Such groups can match everything, and a successful match gives an
+array element with C<[$method, $packages, $args, $matched]>.
 
 Currently the regular expressions with capturing parens are not supported.
 
@@ -2487,9 +2581,17 @@ sub __pure_track_rex ($) {
   $t
 }
 
-sub _parse_rex_microinterpolate {	# $self->idem($code, $groups, $ecount)
+sub _parse_rex_microinterpolate ($$$;$) {	# $self->idem($code, $groups, $have_non_trivial__not_group)
     my ($self, $code, $groups) = (shift, shift, shift);
-    return '%' if $code eq '%';
+    if ($_[1]) {				# handler
+      my ($check, $fail, $id) = ($code =~ /^(=(=)?)?(\w+)/) or die "Panic: <<$code>>";
+#      die "Setting via handler not suppored, handler=<<<$id>>>" unless $check;
+      (push @$groups, [$id, $_[1], $_[2]]), return $self->_parse_rex_anything($code) unless $check;
+      return '(?!)' if $fail and not (my($o) = $self->process_handlers($id, $_[1], $_[2]));
+      $o = '' unless defined $o;
+      $_[0]++, return quotemeta $o;
+    }
+    $_[0]++, return '%' if $code eq '%';
     # In these two, allow setting to '', and to 123/789 too...
     push(@$groups, $code), return '((?<!\d)\d{1,3}(?:/\d{1,3})?(?!\d)|\A\Z)' if $code eq 'n';
     (push @$groups, $code), return '((?<!\d)[12]\d{3}(?:(?:--|[-:/T\0,])\d(?:|\d|\d\d\d))*(?!\d)|\A\Z)'
@@ -2500,15 +2602,17 @@ sub _parse_rex_microinterpolate {	# $self->idem($code, $groups, $ecount)
     (push @$groups, $code), return $self->_parse_rex_anything($code)
 	if $code =~ /^[talgc]$/;
     $_[0]++, return $self->_rex_protect_filename($self->interpolate("%$1"), $1)
-	if $code =~ /^=([ABDfFN]|{d\d+})$/;
+	if $code =~ /^=([ABDfFN]|\{d\d+\})$/;
     $_[0]++, return quotemeta($self->interpolate("%$1"))
-	if $code =~ /^=([talgceEwhvLrqQSmsCpouMH]|{.*})$/;
+	if $code =~ /^=([talgceEwhvLrqQSmsCpouMH]|\{.*\})$/;
+    $_[0]++, return $self->interpolate("%{$+:1}") ? quotemeta($self->interpolate("%$1")) : '(?!)'
+	if $code =~ /^==(([talgcynfFeEABDNvLrqQSmsCpouMHwh])|\{(.*)\})$/;
     $_[0]++, return '(?<!\d)0*' . $self->__pure_track_rex . '(?!\d)'
 	if $code eq '=n';
     $_[0]++, return '(?<!\d)' . quotemeta($self->year) . '(?!\d)'
 	if $code eq '=y';
     (push @$groups, $1), return $self->_parse_rex_anything()
-	if $code =~ /^{(U\d+|\w{4}(\d\d+|(?:\([^\)]*\))?(?:\[.*\])?)?)}$/s;
+	if $code =~ /^\{(U\d+|\w{4}(\d\d+|(?:\([^\)]*\))?(?:\[.*\])?)?)\}$/s;
     # What remains is extension
     my $e = $self->get_config('extension')->[0];
     (push @$groups, $code), return "($e)" if $code eq 'E';
@@ -2520,30 +2624,59 @@ sub _parse_rex_microinterpolate {	# $self->idem($code, $groups, $ecount)
     die "unknown escape `%$code'";
 }
 
-sub parse_rex_prepare {
-    my ($self, $pattern) = @_;
-    my ($codes, $exact, $p) = ([], 0, '');
+sub _parse_rex_prepare ($$$) {
+    my ($self, $is_rex, $pattern) = @_;
+    my ($codes, $exact, $p) = ([], 0, ($is_rex ? '' : '^'));
     my $o = $pattern;
-    # (=? is correct! Group 4 is inside $frame_bra
-    while ($pattern =~ s<^([^%]+)|%(=?{(?:($frame_bra)|[^}]+})|=?.)><>so) {
+    # (=? is correct! Groups 4(descr), 5(have_bra) are inside $frame_bra
+    while ($pattern =~ s< ^ ( [^%]+ )			# 1: no %-escapes
+			 | % (  ={0,2} \{		# 2: %-group (beg-of-{FRAME}, or full {non-frame}), or single-letter
+                                (?: ($frame_bra) 	# 3: beg-FRAME (up to leading [, if present)
+                                  | [^}]+ \}		#    or full non-frame
+                                )
+			      | =? .			# or single letter
+			     )
+			><>sox) {
       if (defined $1) {
-	$p .= $1;
+	$p .= ($is_rex ? $1 : quotemeta $1);
       } else {
 	my $group = $2;
-	# description begins
-	$group .= ($self->_interpolate($pattern, ']') . ']') if $4;
 	if ($3) {
+	  my ($id, $langs_or_packs, $have_bra) = ($3, $4, $5);
+          my(@_handlers, @args) = split /,/, ($4 || '');
+          my @handlers = grep $handlers{$_}, @_handlers;
+          $id =~ /^[A-Z]{3}[A-Z\d](\d\d)?\b/ or @handlers and @handlers == @_handlers
+            or die "Cannot parse frame descriptor: <<<$id>>>";
+	  my ($meth) = ($id =~ /^(\w+)/) or die "Panic: meth";
+
+          while (@handlers and $have_bra) {          # process []-arguments of a handler ($group is not terminated!)
+            push @args, $self->_interpolate($_[1], ']', !'skip');
+            $have_bra = ($_[1] =~ s/^\[//);
+          }          # append []-arguments of a frame:
+          $group .= ($self->_interpolate($pattern, ']') . ']') if $have_bra;
 	  $pattern =~ s/^}// or die "Can't find end of frame name, I see `$p'";
+	  $p .= $self->_parse_rex_microinterpolate($group, $codes, $exact, \@handlers, \@args), next if @handlers;
 	  $group .= '}';
 	}
 	$p .= $self->_parse_rex_microinterpolate($group, $codes, $exact);
       }
     }
+    $p .= '$' unless $is_rex;
     die "Can't parse pattern, I see `$pattern'" if length $pattern;
     #$pattern =~ s<%(=?{(?:[^\\{}]|\\[\\{}])*}|{U\d+}|=?.)> # (=? is correct!
     #		 ( $self->_parse_rex_microinterpolate($1, $codes, $exact) )seg;
-    my @tags = map { length == 1 ? $trans{$_} : $_ } @$codes;
+    my @tags = map { (not ref and length == 1) ? $trans{$_} : $_ } @$codes;
     return [$o, $p, \@tags, $exact];
+}
+
+sub parse_rex_prepare ($$) {
+    my ($self) = shift;
+    $self->_parse_rex_prepare('REx', @_)
+}
+
+sub parse_prepare ($$) {
+    my ($self) = shift;
+    $self->_parse_rex_prepare(!'REx', @_)
 }
 
 sub parse_rex_match {	# pattern = [Original, Interpolated, Fields, NumExact]
@@ -2553,16 +2686,19 @@ sub parse_rex_match {	# pattern = [Original, Interpolated, Fields, NumExact]
     my $cv = @vals - 1;
     die "Unsupported %-regular expression `$pattern->[0]' (catching parens? Got $cv vals) (converted to `$pattern->[1]')"
 	unless $cv == @{$pattern->[2]};
-    my ($c, %h) = 0;
+    my ($c, %h, @a) = 0;
     for my $k ( @{$pattern->[2]} ) {
+        next unless defined (my $v = $vals[$c++]);
+        push(@a, [@$k, $v]), next if ref $k;
 	$h{$k} ||= [];
-	push @{ $h{$k} }, $vals[$c++];	# Support multiple occurences
+	push @{ $h{$k} }, $v;	# Support multiple occurences
     }
     my $j = $self->get_config('parse_join')->[0];
     for $c (keys %h) {
 	$h{$c} = join $j, grep length, @{ $h{$c} };
     }
     $h{track} =~ s/^0+(?=\d)// if exists $h{track};
+    return \%h, \@a if wantarray and @a;
     return \%h;
 }
 
@@ -2603,11 +2739,11 @@ against multiple $data.
 #my %unquote = ('\\%' => '%', '\\%\\=' => '%=');
 sub __unquote ($) { (my $k = shift) =~ s/\\(\W)/$1/g; $k }
 
-sub parse_prepare {
+sub __parse_prepare {		# obsolete parse_prepare
     my ($self, $pattern) = @_;
     $pattern = "^\Q$pattern\E\$";
-    # unquote %. and %=. and %={WHATEVER} and %{WHATEVER}
-    $pattern =~ s<(\\%(?:\\=)?(\w|\\{(?:\w|\\[^\w\\{}]|\\\\\\[\\{}])*\\}|\\\W))>
+    # unquote %. and %=. and %={WHATEVER} and %{WHATEVER}; look for quoted \w or [^\w\\{}] or \[\\{}]
+    $pattern =~ s<(\\%(?:\\=){0,2}(\w|\\\{(?:\w|\\[^\w\\{}]|\\\\\\[\\{}])*\\\}|\\[^\w=\{]))>
 		 ( __unquote($1) )ge;
     # $pattern =~ s/(\\%(?:\\=)?)(\w|\\(\W))/$unquote{$1}$+/g;
     return $self->parse_rex_prepare($pattern);
@@ -3543,12 +3679,12 @@ configuration variable C<local_cfg_file>.
 
 L<MP3::Tag::ID3v1>, L<MP3::Tag::ID3v2>, L<MP3::Tag::File>,
 L<MP3::Tag::ParseData>, L<MP3::Tag::Inf>, L<MP3::Tag::CDDB_File>,
-L<MP3::Tag::Cue>, L<mp3info2>,
-L<typeset_audio_dir>.
+L<MP3::Tag::Cue>, L<MP3::Tag::ImageExifTool>, L<MP3::Tag::ImageSize>,
+L<MP3::Tag::LastResort>, L<mp3info2>, L<typeset_audio_dir>.
 
 =head1 COPYRIGHT
 
-Copyright (c) 2000-2008 Thomas Geffert, Ilya Zakharevich.  All rights reserved.
+Copyright (c) 2000-2016 Thomas Geffert, Ilya Zakharevich.  All rights reserved.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the Artistic License, distributed
