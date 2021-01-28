@@ -171,7 +171,8 @@ my %Options = (
   skipfilename => 'flac2mp3.ignore',
   skipfile     => 1,
   processes    => $NUM_PROCESSES_DEFAULT,
-  tagseparator => $TAG_SEPARATOR_DEFAULT
+  tagseparator => $TAG_SEPARATOR_DEFAULT,
+  id3v23unsync => 0
 );
 
 GetOptions(
@@ -179,7 +180,7 @@ GetOptions(
   "tagsonly!",   "force!",         "usage",      "help",
   "version",     "pretend",        "skipfile!",  "skipfilename=s",
   "processes=i", "tagseparator=s", "preset=s",   "lameargs=s",
-  "copyfiles"
+  "copyfiles",   "id3v23unsync!"
 );
 
 # info flag is the inverse of --quiet
@@ -451,6 +452,8 @@ Options:
                      same tag.
                      Default: "/"
     --copyfiles      Copy non-flac files to dest directories
+    --id3v23unsync   Enable id3v2.3 unsynchronisation (media players without id3 tag support)
+
 EOT
   exit 0;
 }
@@ -839,6 +842,7 @@ sub write_tags {
 
     if ( !$Options{pretend} ) {
       my $mp3 = MP3::Tag->new($destfilename);
+      $mp3->get_config("id3v23_unsync")->[0] = $Options{id3v23unsync};
 
       # Remove any existing tags
       $mp3->{ID3v2}->remove_tag if exists $mp3->{ID3v2};
